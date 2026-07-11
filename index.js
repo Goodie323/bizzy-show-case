@@ -5,6 +5,7 @@ const cors = require('cors');
 
 // Import routes
 const webhookRoutes = require('./routes/webhookRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,6 +28,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 
 // Routes
 app.use('/webhook', webhookRoutes);
+app.use('/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
