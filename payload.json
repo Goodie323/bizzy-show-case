@@ -1,0 +1,32 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "88888",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "whatsapp:+14155238886",
+              "phone_number_id": "123456789"
+            },
+            "messages": [
+              {
+                "id": "wamid.haggle_test_2026",
+                "from": "whatsapp:+2349128793093",
+                "timestamp": "1783174209",
+                "type": "text",
+                "text": {
+                  "body": "Odogwu! I wan buy the vintage shirt but that 7500 high abeg. Do normal level for your boy, how last price be?"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+
