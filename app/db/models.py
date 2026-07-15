@@ -2,6 +2,8 @@
 from sqlalchemy import Column, String, Integer, Numeric, ForeignKey, DateTime, JSON, Boolean, Text
 from sqlalchemy.orm import relationship, declarative_base
 import datetime
+from sqlalchemy.sql import func
+
 
 Base = declarative_base()
 
@@ -56,7 +58,15 @@ class Product(Base):
     merchant = relationship("Merchant", back_populates="products")
     bargain_logs = relationship("BargainLog", back_populates="product", cascade="all, delete-orphan")
 
+class FAQ(Base):
+    __tablename__ = "faqs"
 
+    id = Column(Integer, primary_key=True, index=True)
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    
 class SalesLedger(Base):
     """
     The Structured Transaction Book.
