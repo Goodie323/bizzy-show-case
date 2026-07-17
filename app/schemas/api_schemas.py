@@ -21,7 +21,7 @@ class MerchantProfileResponse(BaseModel):
     owner_personal_number: Optional[str] = None
     business_name: str
     preferred_language: Optional[str] = "english"
-    payment_details: Optional[dict] = None  # Stores bank, account number, account name
+    payment_details: Optional[str] = None  # Stores bank, account number, account name
     is_active: bool
 
     class Config:
@@ -30,7 +30,7 @@ class MerchantProfileResponse(BaseModel):
 class MerchantProfileUpdate(BaseModel):
     business_name: Optional[str] = None
     preferred_language: Optional[str] = None
-    payment_details: Optional[dict] = None
+    payment_details: Optional[str] = None
     is_active: Optional[bool] = None
 
 # ==========================================
