@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from app.db import models
-from app.db.session import get_db
+from app.api.deps import get_db
 
 
 router = APIRouter(tags=["Analytics"])
