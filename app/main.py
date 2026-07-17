@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.api.v1.webhooks import router as webhook_router
 from app.api.v1.endpoints import router as api_router
-from app.api.analytics import router as analytics_router
+from app.api.v1.analytics import router as analytics_router
 
 # 1. Initialize the FastAPI core instance (Uvicorn looks specifically for this name 'app')
 app = FastAPI(
