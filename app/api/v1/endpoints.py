@@ -4,20 +4,20 @@ from sqlalchemy import func
 from typing import List, Optional
 from datetime import datetime
 
-from app.api.deps import get_db
-from app.db.models import Merchant, Product, Order, BargainLog  # Adjust based on your models file
+from app.api.deps import get_db, get_current_merchant
+from app.db.models import Merchant, Product, Order, BargainLog
 from app.schemas.api_schemas import (
     OTPSendPayload, OTPVerifyPayload,
     MerchantProfileResponse, MerchantProfileUpdate,
     ProductResponse, ProductCreatePayload, ProductUpdatePayload,
-    OrderResponse, OrderStatusUpdate,
+ OrderResponse, OrderStatusUpdate,
     BargainLogResponse, AnalyticsOverviewResponse, ProductPerformance
 )
 
 router = APIRouter()
 
 # ==========================================
-# 1. AUTHENTICATION ENDPOINTS
+# 1. AUTHENTICATION ENDPOINTS (No auth required)
 # ==========================================
 
 @router.post("/auth/otp/send", status_code=status.HTTP_200_OK)
@@ -30,7 +30,7 @@ async def verify_otp(payload: OTPVerifyPayload):
     if payload.otp == "482910":
         return {
             "success": True,
-            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MGQ1ZWNiNzRkNmJiODMwYjhlNzExMTEifQ",
+            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtZXJjaGFudF9pZCI6MX0",
             "token_type": "bearer",
             "merchant_id": 1,
             "business_name": "Scent by Zara",
@@ -44,24 +44,19 @@ async def verify_otp(payload: OTPVerifyPayload):
 # ==========================================
 
 @router.get("/merchant", response_model=MerchantProfileResponse)
-def get_merchant_profile(db: Session = Depends(get_db)):
-    """
-    GET /api/v1/merchant - Fetches the single active merchant profile.
-    """
-    merchant = db.query(Merchant).filter(Merchant.is_active == True).first()
-    if not merchant:
-        raise HTTPException(status_code=404, detail="Merchant profile not found")
+def get_merchant_profile(
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """GET /api/v1/merchant - Returns the authenticated merchant's profile."""
     return merchant
 
 @router.put("/merchant", response_model=MerchantProfileResponse)
-def update_merchant_profile(payload: MerchantProfileUpdate, db: Session = Depends(get_db)):
-    """
-    PUT /api/v1/merchant - Updates editable settings on the merchant context.
-    """
-    merchant = db.query(Merchant).filter(Merchant.is_active == True).first()
-    if not merchant:
-        raise HTTPException(status_code=404, detail="Merchant profile not found")
-        
+def update_merchant_profile(
+    payload: MerchantProfileUpdate,
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """PUT /api/v1/merchant - Updates the authenticated merchant's profile."""
     if payload.business_name is not None:
         merchant.business_name = payload.business_name
     if payload.preferred_language is not None:
@@ -70,39 +65,40 @@ def update_merchant_profile(payload: MerchantProfileUpdate, db: Session = Depend
         merchant.payment_details = payload.payment_details
     if payload.is_active is not None:
         merchant.is_active = payload.is_active
-        
+
     db.commit()
     db.refresh(merchant)
     return merchant
 
 
 # ==========================================
-# 3. PRODUCT CATALOG ENDPOINTS
+# 3. PRODUCT CATALOG ENDPOINTS (Auth + merchant-scoped)
 # ==========================================
 
 @router.get("/products", response_model=List[ProductResponse])
 def get_products_catalog(
     search: Optional[str] = None,
     is_available: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
 ):
-    """
-    GET /api/v1/products - Fetches catalog inventory matching exact columns.
-    """
-    query = db.query(Product)
+    """GET /api/v1/products - Returns ONLY the authenticated merchant's products."""
+    query = db.query(Product).filter(Product.merchant_id == merchant.id)
     if search:
         query = query.filter(Product.name.ilike(f"%{search}%"))
     if is_available is not None:
         query = query.filter(Product.is_available == is_available)
-        
     return query.all()
 
 @router.post("/products", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
-def create_product(payload: ProductCreatePayload, db: Session = Depends(get_db)):
-    """
-    POST /api/v1/products - Inserts a new catalog item.
-    """
+def create_product(
+    payload: ProductCreatePayload,
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """POST /api/v1/products - Creates a product for the authenticated merchant."""
     new_product = Product(
+        merchant_id=merchant.id,  # ← AUTO-INJECTED from JWT
         name=payload.name,
         variant=payload.variant,
         price=payload.price,
@@ -116,103 +112,128 @@ def create_product(payload: ProductCreatePayload, db: Session = Depends(get_db))
     return new_product
 
 @router.put("/products/{id}", response_model=ProductResponse)
-def update_product(id: int, payload: ProductUpdatePayload, db: Session = Depends(get_db)):
-    """
-    PUT /api/v1/products/{id} - Full or partial updates of a catalog product.
-    """
-    product = db.query(Product).filter(Product.id == id).first()
+def update_product(
+    id: int,
+    payload: ProductUpdatePayload,
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """PUT /api/v1/products/{id} - Updates a product (must belong to merchant)."""
+    product = db.query(Product).filter(
+        Product.id == id,
+        Product.merchant_id == merchant.id
+    ).first()
     if not product:
-        raise HTTPException(status_code=404, detail="Product ID does not exist")
-        
+        raise HTTPException(status_code=404, detail="Product not found")
+
     for key, value in payload.dict(exclude_unset=True).items():
         setattr(product, key, value)
-        
+
     db.commit()
     db.refresh(product)
     return product
 
 @router.delete("/products/{id}", status_code=status.HTTP_200_OK)
-def delete_product(id: int, db: Session = Depends(get_db)):
-    """
-    DELETE /api/v1/products/{id} - Soft deletes/deactivates a product.
-    """
-    product = db.query(Product).filter(Product.id == id).first()
+def delete_product(
+    id: int,
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """DELETE /api/v1/products/{id} - Soft deletes a product (must belong to merchant)."""
+    product = db.query(Product).filter(
+        Product.id == id,
+        Product.merchant_id == merchant.id
+    ).first()
     if not product:
-        raise HTTPException(status_code=404, detail="Product ID does not exist")
-        
-    product.is_available = False  # Standard soft-delete toggle
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    product.is_available = False
     db.commit()
     return {"success": True, "message": "Product successfully marked unavailable"}
 
 
 # ==========================================
-# 4. ORDER MANAGEMENT ENDPOINTS
+# 4. ORDER MANAGEMENT ENDPOINTS (Auth + merchant-scoped)
 # ==========================================
 
 @router.get("/orders", response_model=List[OrderResponse])
-def get_orders(status: Optional[str] = None, db: Session = Depends(get_db)):
-    """
-    GET /api/v1/orders - Reads transaction history directly.
-    """
-    query = db.query(Order)
+def get_orders(
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """GET /api/v1/orders - Returns ONLY the authenticated merchant's orders."""
+    query = db.query(Order).filter(Order.merchant_id == merchant.id)
     if status:
         query = query.filter(Order.order_status == status)
     return query.all()
 
 @router.patch("/orders/{id}/status", response_model=OrderResponse)
-def patch_order_status(id: int, payload: OrderStatusUpdate, db: Session = Depends(get_db)):
-    """
-    PATCH /api/v1/orders/{id}/status - Modifies processing or payment states.
-    """
-    order = db.query(Order).filter(Order.id == id).first()
+def patch_order_status(
+    id: int,
+    payload: OrderStatusUpdate,
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """PATCH /api/v1/orders/{id}/status - Updates order status (must belong to merchant)."""
+    order = db.query(Order).filter(
+        Order.id == id,
+        Order.merchant_id == merchant.id
+    ).first()
     if not order:
-        raise HTTPException(status_code=404, detail="Order ID does not exist")
-        
+        raise HTTPException(status_code=404, detail="Order not found")
+
     if payload.order_status is not None:
         order.order_status = payload.order_status
     if payload.payment_status is not None:
         order.payment_status = payload.payment_status
     if payload.delivery_status is not None:
         order.delivery_status = payload.delivery_status
-        
+
     db.commit()
     db.refresh(order)
     return order
 
 
 # ==========================================
-# 5. AI BARGAIN LOG ENDPOINTS
+# 5. AI BARGAIN LOG ENDPOINTS (Auth + merchant-scoped)
 # ==========================================
 
 @router.get("/bargains", response_model=List[BargainLogResponse])
-def get_bargain_logs(outcome: Optional[str] = None, db: Session = Depends(get_db)):
-    """
-    GET /api/v1/bargains - Retrieves live negotiation histories.
-    """
-    query = db.query(BargainLog)
+def get_bargain_logs(
+    outcome: Optional[str] = None,
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """GET /api/v1/bargains - Returns ONLY the authenticated merchant's bargain logs."""
+    query = db.query(BargainLog).filter(BargainLog.merchant_id == merchant.id)
     if outcome:
         query = query.filter(BargainLog.outcome == outcome)
     return query.all()
 
 
 # ==========================================
-# 6. ANALYTICS & PERFORMANCE ENDPOINTS
+# 6. ANALYTICS & PERFORMANCE ENDPOINTS (Auth + merchant-scoped)
 # ==========================================
 
 @router.get("/analytics/overview", response_model=AnalyticsOverviewResponse)
-def get_analytics_overview(db: Session = Depends(get_db)):
-    """
-    GET /api/v1/analytics/overview - Card summaries for dashboard header widgets.
-    """
-    total_revenue = db.query(func.sum(Order.total_amount)).filter(Order.payment_status == "paid").scalar() or 0.0
-    pending_orders = db.query(func.count(Order.id)).filter(Order.order_status == "pending").scalar() or 0
-    completed_orders = db.query(func.count(Order.id)).filter(Order.order_status == "completed").scalar() or 0
-    active_products = db.query(func.count(Product.id)).filter(Product.is_available == True).scalar() or 0
-    
-    # Track items with low stocks (<= 3 items remaining)
-    low_stock = db.query(Product).filter(Product.stock_quantity <= 3, Product.is_available == True).all()
+def get_analytics_overview(
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """GET /api/v1/analytics/overview - Scoped to authenticated merchant."""
+    total_revenue = db.query(func.sum(Order.total_amount))        .filter(Order.merchant_id == merchant.id)        .filter(Order.payment_status == "paid").scalar() or 0.0
+
+    pending_orders = db.query(func.count(Order.id))        .filter(Order.merchant_id == merchant.id)        .filter(Order.order_status == "pending").scalar() or 0
+
+    completed_orders = db.query(func.count(Order.id))        .filter(Order.merchant_id == merchant.id)        .filter(Order.order_status == "completed").scalar() or 0
+
+    active_products = db.query(func.count(Product.id))        .filter(Product.merchant_id == merchant.id)        .filter(Product.is_available == True).scalar() or 0
+
+    low_stock = db.query(Product)        .filter(Product.merchant_id == merchant.id)        .filter(Product.stock_quantity <= 3, Product.is_available == True).all()
+
     alerts = [{"product_id": p.id, "name": p.name, "quantity": p.stock_quantity} for p in low_stock]
-    
+
     return {
         "total_revenue": float(total_revenue),
         "pending_orders_count": int(pending_orders),
@@ -222,11 +243,12 @@ def get_analytics_overview(db: Session = Depends(get_db)):
     }
 
 @router.get("/analytics/performance", response_model=List[ProductPerformance])
-def get_products_performance(db: Session = Depends(get_db)):
-    """
-    GET /api/v1/analytics/performance - Evaluates product metrics and bargain conversions.
-    """
-    # Mocking aggregated calculations to unblock Next.js graphing
+def get_products_performance(
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """GET /api/v1/analytics/performance - Returns merchant's product performance."""
+    # TODO: Replace with real aggregation query scoped to merchant
     performance_list = [
         {
             "product_id": 1,
@@ -244,3 +266,44 @@ def get_products_performance(db: Session = Depends(get_db)):
         }
     ]
     return performance_list
+
+@router.get("/analytics/revenue/daily")
+def get_daily_revenue(
+    db: Session = Depends(get_db),
+    merchant: Merchant = Depends(get_current_merchant)
+):
+    """GET /api/v1/analytics/revenue/daily - Returns merchant's daily revenue."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import func, cast, Date
+
+    end_date = datetime.utcnow()
+    start_date = end_date - timedelta(days=30)
+
+    daily = db.query(
+        cast(models.SalesLedger.timestamp, Date).label("date"),
+        func.sum(models.SalesLedger.total_amount).label("revenue")
+    ).filter(
+        models.SalesLedger.merchant_id == merchant.id,
+        models.SalesLedger.payment_status == "confirmed",
+        models.SalesLedger.timestamp >= start_date
+    ).group_by(
+        cast(models.SalesLedger.timestamp, Date)
+    ).order_by(
+        cast(models.SalesLedger.timestamp, Date)
+    ).all()
+
+    result = []
+    current = start_date.date()
+    revenue_map = {str(d.date): float(d.revenue) for d in daily}
+
+    while current <= end_date.date():
+        date_str = current.strftime("%Y-%m-%d")
+        day_name = current.strftime("%a")
+        result.append({
+            "date": date_str,
+            "day": day_name,
+            "revenue": revenue_map.get(date_str, 0.0)
+        })
+        current += timedelta(days=1)
+
+    return result
