@@ -468,127 +468,45 @@ def process_order_or_negotiation(
     message_text: str
 ):
     """Process orders with proper sales flow: negotiate → payment → delivery → confirm."""
-    
+
     intent_action = ai_response.get("intent_action")
     merchant = catalog_data.get("merchant")
-    
+    parsed_items = ai_response.get("parsed_items", [])
+
+    # Initialize tracking variables
+    order_items = []
+    total_amount = 0.0
+    order_success = True
+
     # ==========================================
-    # STAGE 1: NEGOTIATION
-    # ==========================================
-    if intent_action == "NEGOTIATION":
-        # ... your existing negotiation logic ...
-        # After deal is struck, DON'T create order. Send payment details.
-        
-        if final_price >= matched_prod.min_floor_price:
-            # Send payment details, NOT confirmation
-            payment_msg = (
-                f"✅ Deal! {matched_prod.name} at ₦{int(final_price)}.\n\n"
-                f"Pay to:\n{merchant.payment_details}\n"
-                f"Amount: ₦{int(final_price)}\n\n"
-                f"Send proof of payment when done!"
-            )
-            run_sync(send_twilio_whatsapp_message(
-                to_number=customer_phone,
-                body_text=payment_msg
-            ))
-            
-            # Create PENDING order (not confirmed)
-            create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
-            return  # EXIT — wait for payment
-    
-    # ==========================================
-    # STAGE 2: PAYMENT REQUEST (fresh order, no negotiation)
-    # ==========================================
-    elif intent_action == "PAYMENT_REQUEST":
-        # Customer agreed to buy at retail price
-        # Send payment details
-        payment_msg = (
-            f"✅ Great choice! {matched_prod.name} at ₦{int(matched_prod.price)}.\n\n"
-            f"Pay to:\n{merchant.payment_details}\n"
-            f"Amount: ₦{int(matched_prod.price)}\n\n"
-            f"Send proof of payment when done!"
-        )
-        run_sync(send_twilio_whatsapp_message(
-            to_number=customer_phone,
-            body_text=payment_msg
-        ))
-        
-        create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
-        return
-    
-    # ==========================================
-    # STAGE 3: DELIVERY REQUEST (customer says they paid)
-    # ==========================================
-    elif intent_action == "DELIVERY_REQUEST":
-        # Ask for delivery address
-        run_sync(send_twilio_whatsapp_message(
-            to_number=customer_phone,
-            body_text="✅ Payment received! Where should we deliver your order?\n\nPlease send your full address."
-        ))
-        
-        # Update order status to payment_confirmed
-        update_order_status(db, customer_phone, merchant_id, payment_status="confirmed")
-        return
-    
-    # ==========================================
-    # STAGE 4: ORDER CONFIRMATION (customer gives address)
-    # ==========================================
-    elif intent_action == "ORDER_CONFIRMATION":
-        # Extract address from message
-        delivery_address = ai_response.get("delivery_address", message_text)
-        
-        # Update order with address
-        update_order_with_address(db, customer_phone, merchant_id, delivery_address)
-        
-        # Generate receipt
-        receipt_url = generate_receipt(db, customer_phone, merchant_id)
-        
-        # Final confirmation
-        summary = build_order_summary(db, customer_phone, merchant_id)
-        confirm_msg = (
-            f"✅ Order confirmed!\n\n"
-            f"{summary}\n"
-            f"Delivery: {delivery_address}\n\n"
-            f"Receipt: {receipt_url}\n\n"
-            f"Thank you for shopping with us! 🎉"
-        )
-        run_sync(send_twilio_whatsapp_message(
-            to_number=customer_phone,
-            body_text=confirm_msg
-        ))
-        
-        # Send alert to merchant
-        send_merchant_alert(db, customer_phone, merchant_id, summary)
-        return
-    
-    # ==========================================
-    # 5. PROCESS EACH ITEM WITH LOCKING
+    # STAGE 0: PROCESS EACH ITEM WITH LOCKING
     # ==========================================
     for item in parsed_items:
         product_name = item.get("product_name", "")
         requested_qty = item.get("quantity", 1)
-        
+
         try:
             # Use row-level locking for stock update
             matched_prod = db.query(Product).filter(
                 Product.merchant_id == merchant_id,
                 func.lower(Product.name) == func.lower(product_name.strip())
             ).with_for_update().first()  # 🔒 Row-level lock
-            
+
             if not matched_prod:
                 # Try fallback matching
                 matched_prod = match_product(db, merchant_id, product_name)
-            
+
             if not matched_prod:
                 logger.warning(f"Product not found: {product_name}")
                 run_sync(send_twilio_whatsapp_message(
                     to_number=customer_phone,
                     body_text=f"Sorry, we couldn't find '{product_name}'. Please check the name."
                 ))
+                order_success = False
                 continue
-            
+
             # ==========================================
-            # 6. STOCK VALIDATION
+            # STOCK VALIDATION
             # ==========================================
             if matched_prod.stock_quantity < requested_qty:
                 logger.warning(f"Insufficient stock for {matched_prod.name}")
@@ -598,20 +516,20 @@ def process_order_or_negotiation(
                 ))
                 order_success = False
                 continue
-            
+
             # ==========================================
-            # 7. NEGOTIATION HANDLING
+            # NEGOTIATION HANDLING
             # ==========================================
             final_price = matched_prod.price  # Default to retail price
-            
-            if ai_response.get("intent_action") == "NEGOTIATION":
+
+            if intent_action == "NEGOTIATION":
                 offered_price = ai_response.get("offered_price", matched_prod.price)
-                
+
                 # Check if offer meets minimum floor price
                 if offered_price >= matched_prod.min_floor_price:
                     # Accept offer
                     final_price = offered_price
-                    
+
                     # Send acceptance message
                     run_sync(send_twilio_whatsapp_message(
                         to_number=customer_phone,
@@ -620,12 +538,12 @@ def process_order_or_negotiation(
                 else:
                     # Counter-offer formula
                     counter_price = matched_prod.min_floor_price + (matched_prod.price - matched_prod.min_floor_price) * 0.3
-                    
+
                     run_sync(send_twilio_whatsapp_message(
                         to_number=customer_phone,
                         body_text=f"🤝 Best I can do is ₦{int(counter_price)} for {matched_prod.name}. Deal?"
                     ))
-                    
+
                     # Log the counter-offer
                     bargain_log = BargainLog(
                         merchant_id=merchant_id,
@@ -640,14 +558,14 @@ def process_order_or_negotiation(
                     db.add(bargain_log)
                     db.commit()
                     return  # Exit, waiting for customer response to the counter-offer
-            
+
             # ==========================================
-            # 8. DEDUCT STOCK
+            # DEDUCT STOCK
             # ==========================================
             matched_prod.stock_quantity -= requested_qty
             item_total = final_price * requested_qty
             total_amount += item_total
-            
+
             # Store item structure in formatted JSON
             order_items.append({
                 "product_id": matched_prod.id,
@@ -656,7 +574,7 @@ def process_order_or_negotiation(
                 "unit_price": float(final_price),
                 "total": float(item_total)
             })
-            
+
             # Log individual negotiation/bargain details
             bargain_log = BargainLog(
                 merchant_id=merchant_id,
@@ -669,14 +587,14 @@ def process_order_or_negotiation(
                 outcome="accepted" if final_price < matched_prod.price else "pending"
             )
             db.add(bargain_log)
-            
+
             # Stock alert for low inventory
             if matched_prod.stock_quantity <= STOCK_ALERT_THRESHOLD:
                 send_slack_alert(
                     f"⚠️ Low stock alert: {matched_prod.name} (Merchant {merchant_id}) - {matched_prod.stock_quantity} remaining",
                     severity="warning"
                 )
-            
+
         except OperationalError as e:
             db.rollback()
             logger.error(f"Database deadlock detected: {str(e)}")
@@ -686,9 +604,94 @@ def process_order_or_negotiation(
                 body_text="We're experiencing high traffic. Please try again in a moment."
             ))
             break
-    
+
     # ==========================================
-    # 9. CREATE SINGLE UNIFIED ORDER
+    # STAGE 1: NEGOTIATION (send payment details after deal)
+    # ==========================================
+    if intent_action == "NEGOTIATION" and order_success and order_items:
+        # Send payment details, NOT confirmation
+        payment_msg = (
+            f"✅ Deal!\n\n"
+            f"Pay to:\n{merchant.payment_details}\n"
+            f"Amount: ₦{int(total_amount)}\n\n"
+            f"Send proof of payment when done!"
+        )
+        run_sync(send_twilio_whatsapp_message(
+            to_number=customer_phone,
+            body_text=payment_msg
+        ))
+
+        # Create PENDING order (not confirmed)
+        create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
+        return  # EXIT — wait for payment
+
+    # ==========================================
+    # STAGE 2: PAYMENT REQUEST (fresh order, no negotiation)
+    # ==========================================
+    elif intent_action == "PAYMENT_REQUEST" and order_success and order_items:
+        # Customer agreed to buy at retail price
+        # Send payment details
+        payment_msg = (
+            f"✅ Great choice!\n\n"
+            f"Pay to:\n{merchant.payment_details}\n"
+            f"Amount: ₦{int(total_amount)}\n\n"
+            f"Send proof of payment when done!"
+        )
+        run_sync(send_twilio_whatsapp_message(
+            to_number=customer_phone,
+            body_text=payment_msg
+        ))
+
+        create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
+        return
+
+    # ==========================================
+    # STAGE 3: DELIVERY REQUEST (customer says they paid)
+    # ==========================================
+    elif intent_action == "DELIVERY_REQUEST":
+        # Ask for delivery address
+        run_sync(send_twilio_whatsapp_message(
+            to_number=customer_phone,
+            body_text="✅ Payment received! Where should we deliver your order?\n\nPlease send your full address."
+        ))
+
+        # Update order status to payment_confirmed
+        update_order_status(db, customer_phone, merchant_id, payment_status="confirmed")
+        return
+
+    # ==========================================
+    # STAGE 4: ORDER CONFIRMATION (customer gives address)
+    # ==========================================
+    elif intent_action == "ORDER_CONFIRMATION":
+        # Extract address from message
+        delivery_address = ai_response.get("delivery_address", message_text)
+
+        # Update order with address
+        update_order_with_address(db, customer_phone, merchant_id, delivery_address)
+
+        # Generate receipt
+        receipt_url = generate_receipt(db, customer_phone, merchant_id)
+
+        # Final confirmation
+        summary = build_order_summary(db, customer_phone, merchant_id)
+        confirm_msg = (
+            f"✅ Order confirmed!\n\n"
+            f"{summary}\n"
+            f"Delivery: {delivery_address}\n\n"
+            f"Receipt: {receipt_url}\n\n"
+            f"Thank you for shopping with us! 🎉"
+        )
+        run_sync(send_twilio_whatsapp_message(
+            to_number=customer_phone,
+            body_text=confirm_msg
+        ))
+
+        # Send alert to merchant
+        send_merchant_alert(db, customer_phone, merchant_id, summary)
+        return
+
+    # ==========================================
+    # 9. CREATE SINGLE UNIFIED ORDER (fallback for ORDER_PLACEMENT)
     # ==========================================
     if order_success and order_items:
         try:
@@ -696,7 +699,7 @@ def process_order_or_negotiation(
             timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
             unique_ref = f"ORD-{timestamp_str}-{customer_phone[-4:]}"
             message_hash = calculate_product_hash(message_text, customer_phone)
-            
+
             new_order = Order(
                 merchant_id=merchant_id,
                 customer_number=customer_phone,
@@ -704,25 +707,25 @@ def process_order_or_negotiation(
                 message_hash=message_hash,
                 items_ordered=order_items,
                 total_amount=total_amount,
-                order_status="pending" if ai_response.get("intent_action") == "ORDER_PLACEMENT" else "negotiation_pending",
+                order_status="pending" if intent_action == "ORDER_PLACEMENT" else "negotiation_pending",
                 payment_status="pending"
             )
             db.add(new_order)
             db.commit()
             logger.info(f"✅ Unified Order {unique_ref} committed for {customer_phone}")
-            
+
             # Send confirmation with order summary
             summary = "\n".join([
                 f"- {item['quantity']}x {item['product_name']} @ ₦{int(item['unit_price'])}"
                 for item in order_items
             ])
             summary += f"\n\nTotal: ₦{int(total_amount)}"
-            
+
             run_sync(send_twilio_whatsapp_message(
                 to_number=customer_phone,
                 body_text=f"✅ Order confirmed!\n\n{summary}\n\nThank you for shopping with us! 🎉"
             ))
-            
+
         except Exception as e:
             db.rollback()
             logger.error(f"❌ Commit failed: {str(e)}")
@@ -733,7 +736,7 @@ def process_order_or_negotiation(
     else:
         db.rollback()
         logger.warning(f"Order processing failed for {customer_phone}")
-        
+
         if assistant_reply and order_success:
             run_sync(send_twilio_whatsapp_message(
                 to_number=customer_phone,
@@ -741,89 +744,6 @@ def process_order_or_negotiation(
             ))
 
 
-
-
-def create_pending_order(db, customer_phone, merchant_id, items, total):
-    """Create order with pending status."""
-    order = Order(
-        merchant_id=merchant_id,
-        customer_number=customer_phone,
-        order_reference=f"ORD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{customer_phone[-4:]}",
-        items_ordered=items,
-        total_amount=total,
-        order_status="pending",
-        payment_status="pending"
-    )
-    db.add(order)
-    db.commit()
-
-
-def update_order_status(db, customer_phone, merchant_id, **kwargs):
-    """Update latest order for customer."""
-    order = db.query(Order).filter(
-        Order.customer_number == customer_phone,
-        Order.merchant_id == merchant_id,
-        Order.order_status == "pending"
-    ).order_by(Order.created_at.desc()).first()
-
-    if order:
-        for key, value in kwargs.items():
-            setattr(order, key, value)
-        db.commit()
-
-
-def update_order_with_address(db, customer_phone, merchant_id, address):
-    """Add delivery address to order."""
-    order = db.query(Order).filter(
-        Order.customer_number == customer_phone,
-        Order.merchant_id == merchant_id,
-        Order.order_status == "pending"
-    ).order_by(Order.created_at.desc()).first()
-
-    if order:
-        order.delivery_address = address
-        order.order_status = "confirmed"
-        order.confirmed_at = datetime.utcnow()
-        db.commit()
-
-
-def generate_receipt(db, customer_phone, merchant_id):
-    """Generate PDF receipt and return URL."""
-    # TODO: Implement PDF generation
-    return "https://bizzy.app/receipts/sample.pdf"
-
-
-def send_merchant_alert(db, customer_phone, merchant_id, summary):
-    """Send order alert to merchant's personal WhatsApp."""
-    merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
-    if merchant:
-        alert_msg = (
-            f"🔔 New Order!\n\n"
-            f"Customer: {customer_phone}\n"
-            f"{summary}\n\n"
-            f"Check dashboard for details."
-        )
-        run_sync(send_twilio_whatsapp_message(
-            to_number=merchant.owner_personal_number,
-            body_text=alert_msg
-        ))
-
-
-def build_order_summary(db, customer_phone, merchant_id):
-    """Build order summary string."""
-    order = db.query(Order).filter(
-        Order.customer_number == customer_phone,
-        Order.merchant_id == merchant_id
-    ).order_by(Order.created_at.desc()).first()
-
-    if not order:
-        return ""
-
-    lines = []
-    for item in order.items_ordered:
-        lines.append(f"- {item['quantity']}x {item['product_name']} @ ₦{int(item['unit_price'])}")
-    lines.append(f"\nTotal: ₦{int(order.total_amount)}")
-    return "\n".join(lines)
 
 
 def dispatch_voice_processing_pipeline(customer_phone: str, audio_meta: dict, merchant_id: int):
