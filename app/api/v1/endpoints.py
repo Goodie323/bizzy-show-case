@@ -42,7 +42,7 @@ async def verify_otp(payload: OTPVerifyPayload):
             "access_token": token,
             "token_type": "bearer",
             "merchant_id": 1,
-            "business_name": "Scent by Zara",
+            "business_name": "Test Store by Goodness",
             "expires_in": 86400
         }
     raise HTTPException(status_code=401, detail="Invalid or expired OTP")
