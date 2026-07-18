@@ -4,6 +4,7 @@ import json
 import hashlib
 import asyncio
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, Request, Response, Depends, BackgroundTasks, Form, status
 from sqlalchemy.orm import Session
@@ -475,7 +476,7 @@ def process_order_or_negotiation(
 
     # Initialize tracking variables
     order_items = []
-    total_amount = 0.0
+    total_amount = Decimal("0")
     order_success = True
 
     # ==========================================
@@ -526,7 +527,7 @@ def process_order_or_negotiation(
                 offered_price = ai_response.get("offered_price", matched_prod.price)
 
                 # Check if offer meets minimum floor price
-                if offered_price >= matched_prod.min_floor_price:
+                if Decimal(str(offered_price)) >= matched_prod.min_floor_price:
                     # Accept offer
                     final_price = offered_price
 
@@ -537,7 +538,7 @@ def process_order_or_negotiation(
                     ))
                 else:
                     # Counter-offer formula
-                    counter_price = matched_prod.min_floor_price + (matched_prod.price - matched_prod.min_floor_price) * 0.3
+                    counter_price = matched_prod.min_floor_price + (matched_prod.price - matched_prod.min_floor_price) * Decimal("0.3")
 
                     run_sync(send_twilio_whatsapp_message(
                         to_number=customer_phone,
@@ -563,7 +564,7 @@ def process_order_or_negotiation(
             # DEDUCT STOCK
             # ==========================================
             matched_prod.stock_quantity -= requested_qty
-            item_total = final_price * requested_qty
+            item_total = Decimal(str(final_price)) * requested_qty
             total_amount += item_total
 
             # Store item structure in formatted JSON
@@ -582,8 +583,8 @@ def process_order_or_negotiation(
                 product_id=matched_prod.id,
                 original_price=matched_prod.price,
                 final_price=final_price,
-                discount_percentage=((matched_prod.price - final_price) / matched_prod.price * 100) if final_price < matched_prod.price else 0,
-                discount_amount=(matched_prod.price - final_price) if final_price < matched_prod.price else 0,
+                discount_percentage=float((matched_prod.price - Decimal(str(final_price))) / matched_prod.price * 100) if final_price < matched_prod.price else 0,
+                discount_amount=float(matched_prod.price - Decimal(str(final_price))) if final_price < matched_prod.price else 0,
                 outcome="accepted" if final_price < matched_prod.price else "pending"
             )
             db.add(bargain_log)
