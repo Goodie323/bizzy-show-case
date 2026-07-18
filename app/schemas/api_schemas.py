@@ -102,10 +102,10 @@ class BargainLogResponse(BaseModel):
     customer_number: str
     original_price: float
     final_price: float
-    discount_percentage: float
-    discount_amount: float
+    discount_percentage: Optional[float] = None
+    discount_amount: Optional[float] = None
     negotiation_rounds: int
-    starting_offer: float
+    starting_offer: Optional[float] = None
     counter_offers: Optional[List[float]] = []  # JSON array of rounds
     outcome: str  # e.g., "accepted", "rejected", "abandoned"
     started_at: datetime
