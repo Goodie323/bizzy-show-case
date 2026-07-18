@@ -261,7 +261,15 @@ async def handle_twilio_webhook(
 
     routing_decision = analyze_intent_and_route(Body)
 
-    if not routing_decision["hit_llm"]:
+    # FORCE LLM for product/buying intent messages (bypass overly-aggressive filter)
+    buying_keywords = ["want", "buy", "price", "how much", "cost", "available", "stock", 
+                       "negotiate", "discount", "last price", "do am", "send", "order",
+                       "get", "need", "looking for", "interested", "pay", "paid", "delivery",
+                       "address", "confirm", "receipt", "bargain", "slash", "reduce"]
+    body_lower = Body.lower()
+    force_llm = any(kw in body_lower for kw in buying_keywords)
+
+    if not routing_decision["hit_llm"] and not force_llm:
         logger.info(f"⚡ FILTER HIT: Static template '{routing_decision['type']}'")
         background_tasks.add_task(
             dispatch_static_template,
@@ -270,7 +278,10 @@ async def handle_twilio_webhook(
             merchant_id=merchant.id
         )
     else:
-        logger.info("🧠 FILTER PASSED: Dispatching to Gemini Engine")
+        if force_llm and not routing_decision["hit_llm"]:
+            logger.info(f"🧠 KEYWORD BYPASS: '{Body[:50]}...' → forcing LLM routing")
+        else:
+            logger.info("🧠 FILTER PASSED: Dispatching to Gemini Engine")
         background_tasks.add_task(
             dispatch_gemini_intelligence_pipeline,
             customer_phone=customer_phone,
@@ -324,7 +335,15 @@ async def handle_meta_webhook(
                         message_body = message.text.body
                         routing_decision = analyze_intent_and_route(message_body)
 
-                        if not routing_decision["hit_llm"]:
+                        # FORCE LLM for product/buying intent messages
+                        buying_keywords = ["want", "buy", "price", "how much", "cost", "available", "stock", 
+                                           "negotiate", "discount", "last price", "do am", "send", "order",
+                                           "get", "need", "looking for", "interested", "pay", "paid", "delivery",
+                                           "address", "confirm", "receipt", "bargain", "slash", "reduce"]
+                        msg_lower = message_body.lower()
+                        force_llm = any(kw in msg_lower for kw in buying_keywords)
+
+                        if not routing_decision["hit_llm"] and not force_llm:
                             background_tasks.add_task(
                                 dispatch_static_template,
                                 customer_phone=customer_phone,
@@ -332,6 +351,8 @@ async def handle_meta_webhook(
                                 merchant_id=merchant.id
                             )
                         else:
+                            if force_llm and not routing_decision["hit_llm"]:
+                                logger.info(f"🧠 KEYWORD BYPASS: '{message_body[:50]}...' → forcing LLM routing")
                             background_tasks.add_task(
                                 dispatch_gemini_intelligence_pipeline,
                                 customer_phone=customer_phone,

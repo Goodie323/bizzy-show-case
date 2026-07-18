@@ -116,11 +116,14 @@ def process_customer_message(
             ),
         )
         return json.loads(response.text)
-    except Exception:
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ GEMINI API ERROR: {str(e)}")
         return {
             "intent_action": "UNKNOWN",
             "is_haggling": False,
             "detected_language": "English",
             "parsed_items": [],
-            "assistant_reply": f"Thank you for contacting {business_name}. We are processing your request. Please hold on a moment."
+            "assistant_reply": f"🤖 Oops! Something went wrong. Please try again or contact support."
         }
