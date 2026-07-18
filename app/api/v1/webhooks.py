@@ -747,6 +747,90 @@ def process_order_or_negotiation(
 
 
 
+
+
+def create_pending_order(db, customer_phone, merchant_id, items, total):
+    """Create order with pending status."""
+    order = Order(
+        merchant_id=merchant_id,
+        customer_number=customer_phone,
+        order_reference=f"ORD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{customer_phone[-4:]}",
+        items_ordered=items,
+        total_amount=total,
+        order_status="pending",
+        payment_status="pending"
+    )
+    db.add(order)
+    db.commit()
+
+
+def update_order_status(db, customer_phone, merchant_id, **kwargs):
+    """Update latest order for customer."""
+    order = db.query(Order).filter(
+        Order.customer_number == customer_phone,
+        Order.merchant_id == merchant_id,
+        Order.order_status == "pending"
+    ).order_by(Order.created_at.desc()).first()
+
+    if order:
+        for key, value in kwargs.items():
+            setattr(order, key, value)
+        db.commit()
+
+
+def update_order_with_address(db, customer_phone, merchant_id, address):
+    """Add delivery address to order."""
+    order = db.query(Order).filter(
+        Order.customer_number == customer_phone,
+        Order.merchant_id == merchant_id,
+        Order.order_status == "pending"
+    ).order_by(Order.created_at.desc()).first()
+
+    if order:
+        order.delivery_address = address
+        order.order_status = "confirmed"
+        order.confirmed_at = datetime.utcnow()
+        db.commit()
+
+
+def generate_receipt(db, customer_phone, merchant_id):
+    """Generate PDF receipt and return URL."""
+    # TODO: Implement PDF generation
+    return "https://bizzy.app/receipts/sample.pdf"
+
+
+def send_merchant_alert(db, customer_phone, merchant_id, summary):
+    """Send order alert to merchant's personal WhatsApp."""
+    merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
+    if merchant:
+        alert_msg = (
+            f"🔔 New Order!\n\n"
+            f"Customer: {customer_phone}\n"
+            f"{summary}\n\n"
+            f"Check dashboard for details."
+        )
+        run_sync(send_twilio_whatsapp_message(
+            to_number=merchant.owner_personal_number,
+            body_text=alert_msg
+        ))
+
+
+def build_order_summary(db, customer_phone, merchant_id):
+    """Build order summary string."""
+    order = db.query(Order).filter(
+        Order.customer_number == customer_phone,
+        Order.merchant_id == merchant_id
+    ).order_by(Order.created_at.desc()).first()
+
+    if not order:
+        return ""
+
+    lines = []
+    for item in order.items_ordered:
+        lines.append(f"- {item['quantity']}x {item['product_name']} @ ₦{int(item['unit_price'])}")
+    lines.append(f"\nTotal: ₦{int(order.total_amount)}")
+    return "\n".join(lines)
+
 def dispatch_voice_processing_pipeline(customer_phone: str, audio_meta: dict, merchant_id: int):
     """Handle voice message processing (future implementation)."""
     logger.info(f"🎙️ VOICE PROCESSING: {customer_phone}")
