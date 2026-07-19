@@ -7,7 +7,7 @@ import jwt
 import os
 
 from app.api.deps import get_db, get_current_merchant
-from app.db.models import Merchant, Product, Order, BargainLog
+from app.db.models import Merchant, Product, Order, BargainLog, SalesLedger
 from app.schemas.api_schemas import (
     OTPSendPayload, OTPVerifyPayload,
     MerchantProfileResponse, MerchantProfileUpdate,
@@ -286,16 +286,16 @@ def get_daily_revenue(
     start_date = end_date - timedelta(days=30)
     
     daily = db.query(
-        cast(models.SalesLedger.timestamp, Date).label("date"),
-        func.sum(models.SalesLedger.total_amount).label("revenue")
+        cast(SalesLedger.timestamp, Date).label("date"),
+        func.sum(SalesLedger.total_amount).label("revenue")
     ).filter(
-        models.SalesLedger.merchant_id == merchant.id,
-        models.SalesLedger.payment_status == "confirmed",
-        models.SalesLedger.timestamp >= start_date
+        SalesLedger.merchant_id == merchant.id,
+        SalesLedger.payment_status == "confirmed",
+        SalesLedger.timestamp >= start_date
     ).group_by(
-        cast(models.SalesLedger.timestamp, Date)
+        cast(SalesLedger.timestamp, Date)
     ).order_by(
-        cast(models.SalesLedger.timestamp, Date)
+        cast(SalesLedger.timestamp, Date)
     ).all()
     
     result = []
