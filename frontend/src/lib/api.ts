@@ -78,6 +78,7 @@ export interface Merchant {
   owner_personal_number: string;
   payment_details: string;
   is_active: boolean;
+  preferred_language?: string;
   created_at?: string;
 }
 
@@ -91,6 +92,7 @@ export interface AnalyticsOverview {
 export interface DailyRevenue {
   date: string;
   revenue: number;
+  day?: string;
   order_count: number;
 }
 

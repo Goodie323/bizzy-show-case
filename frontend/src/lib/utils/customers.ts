@@ -1,6 +1,6 @@
 "use client";
 
-import { Order } from "@/lib/types"; // Adjust based on your actual types
+import { Order } from "@/lib/api";
 
 export interface Customer {
   id: string;

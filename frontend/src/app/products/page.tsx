@@ -13,7 +13,7 @@ import { Pagination } from "@/components/ui/pagination"
 import { formatNaira } from "@/lib/utils"
 import { useNotificationContext } from "@/components/notifications/NotificationProvider"
 import { Plus, Pencil, Trash2, Package, Loader2, Search, ImageIcon, TrendingDown, Sparkles } from "lucide-react"
-import { getProducts, Product } from "@/lib/api"
+import { getProducts, Product, createProduct, updateProduct, deleteProduct } from "@/lib/api"
 
 function ProductAvatar({ name, imageUrl }: { name: string; imageUrl?: string }) {
   const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
@@ -89,12 +89,16 @@ export default function ProductsPage() {
   const openEdit = (product: Product) => {
     setEditingProduct(product)
     setFormData({
-      name: product.name, variant: product.variant || "none", price: String(product.price),
-      min_floor_price: String(product.min_floor_price), stock_quantity: String(product.stock_quantity),
-      is_available: product.is_available, image_url: product.image_url || "",
-    })
-    setDialogOpen(true)
-  }
+      name: product.name,
+      variant: product.variant || "none",
+      price: String(product.price),
+      min_floor_price: String(product.min_floor_price),
+      stock_quantity: String(product.stock_quantity),
+      is_available: product.is_available ?? true,
+      image_url: product.image_url || "",  // ← add this
+  })
+  setDialogOpen(true)
+}
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

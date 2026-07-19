@@ -16,7 +16,7 @@ interface Merchant {
   bizzy_number: string
   owner_personal_number: string
   business_name: string
-  preferred_language: string
+  preferred_language?: string
   payment_details: string
   is_active: boolean
 }

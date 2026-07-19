@@ -5,12 +5,8 @@ import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGri
 import { Skeleton } from "@/components/ui/skeleton"
 import { getDailyRevenue } from "@/lib/api"
 import { formatNaira } from "@/lib/utils"
+import { DailyRevenue } from "@/lib/api"
 
-interface DailyRevenue {
-  date: string
-  day: string
-  revenue: number
-}
 
 export function OverviewChart() {
   const [data, setData] = useState<DailyRevenue[]>([])
