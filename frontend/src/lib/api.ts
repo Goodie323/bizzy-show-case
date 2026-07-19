@@ -18,6 +18,7 @@ interface Product {
   min_floor_price: number;
   stock_quantity: number;
   merchant_id: number;
+  is_available?: boolean; 
   created_at?: string;
   updated_at?: string;
 }
