@@ -28,12 +28,12 @@ interface Order {
   total_amount: number
   order_status: string
   payment_status: string
-  delivery_status: string
+  delivery_status?: string
   delivery_address?: string
   payment_method?: string
   notes?: string
   created_at: string
-  updated_at: string
+  updated_at?: string
 }
 
 const statusConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
