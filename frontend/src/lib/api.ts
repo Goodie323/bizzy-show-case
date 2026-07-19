@@ -129,7 +129,7 @@ export const deleteProduct = (id: number) => fetcher<void>(`/products/${id}`, { 
 
 // Orders
 export const getOrders = () => fetcher<Order[]>("/orders");
-export const updateOrderStatus = (id: number, data: { status: string }) =>
+export const updateOrderStatus = (id: number, data: { order_status: string }) =>
   fetcher<Order>(`/orders/${id}/status`, { method: "PATCH", body: JSON.stringify(data) });
 
 // Bargains
