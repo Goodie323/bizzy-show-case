@@ -14,7 +14,11 @@ app = FastAPI(
 # 2. Enable CORS for your frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Your dev frontend
+    allow_origins=[
+    "http://localhost:3000",
+    "https://bizzy-livid.vercel.app",
+],
+
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
