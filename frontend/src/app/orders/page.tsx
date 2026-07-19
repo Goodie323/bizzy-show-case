@@ -11,7 +11,7 @@ import { Pagination } from "@/components/ui/pagination"
 import { getOrders, updateOrderStatus } from "@/lib/api"
 import { formatNaira, formatPhone } from "@/lib/utils"
 import { ShoppingCart, Loader2, Eye, Package, Truck, CreditCard, User, MapPin, ChevronRight, CheckCircle2, Clock } from "lucide-react"
-import { getOrders, Order, updateOrderStatus } from "@/lib/api
+import { getOrders, Order, updateOrderStatus } from "@/lib/api"
 
 interface OrderItem {
   product_id: number
