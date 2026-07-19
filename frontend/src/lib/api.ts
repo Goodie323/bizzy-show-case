@@ -1,7 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://bizzy-engine.onrender.com/api/v1";
 
 // ============================================================================
-// SHARED TYPES — Export these and use them in every page
+// SHARED TYPES — Used across all pages
 // ============================================================================
 
 export interface OTPVerifyResponse {
@@ -20,8 +20,9 @@ export interface Product {
   price: number;
   min_floor_price: number;
   stock_quantity: number;
-  merchant_id: number;
+  merchant_id?: number;
   is_available?: boolean;
+  image_url?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -36,16 +37,17 @@ export interface OrderItem {
 
 export interface Order {
   id: number;
-  merchant_id: number;
+  merchant_id?: number;
   customer_number: string;
   order_reference: string;
   items_ordered: OrderItem[];
   total_amount: number;
   order_status: string;
   payment_status: string;
-  payment_method?: string; 
+  payment_method?: string;
   delivery_status?: string;
   delivery_address?: string;
+  notes?: string;
   created_at: string;
   updated_at?: string;
   confirmed_at?: string;
@@ -53,7 +55,7 @@ export interface Order {
 
 export interface Bargain {
   id: number;
-  merchant_id: number;
+  merchant_id?: number;
   customer_number: string;
   product_id: number;
   product_name?: string;
