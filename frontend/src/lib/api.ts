@@ -43,6 +43,7 @@ export interface Order {
   total_amount: number;
   order_status: string;
   payment_status: string;
+  payment_method?: string; 
   delivery_status?: string;
   delivery_address?: string;
   created_at: string;
