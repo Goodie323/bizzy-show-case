@@ -16,29 +16,77 @@ class OrderItem(BaseModel):
     variant: str = Field("none", description="The size, color, volume or design variation if specified (e.g., 'size 42', '50ml').")
 
 class StructuredOrderExtraction(BaseModel):
-    intent_action: Literal["PRODUCT_INQUIRY", "ORDER_PLACEMENT", "NEGOTIATION", "UNKNOWN"] = Field(
-        description="The derived action type."
+    intent_action: Literal["PRODUCT_INQUIRY", "ORDER_PLACEMENT", "NEGOTIATION", "PAYMENT_REQUEST", "DELIVERY_REQUEST", "ORDER_CONFIRMATION", "UNKNOWN"] = Field(
+        description="The derived action type. PRODUCT_INQUIRY=asking about items, ORDER_PLACEMENT=wants to buy, NEGOTIATION=haggling, PAYMENT_REQUEST=deal struck/ready to pay, DELIVERY_REQUEST=customer says they paid, ORDER_CONFIRMATION=customer gives address."
     )
     is_haggling: bool = Field(
         description="True if the customer is asking for a discount, saying 'abeg reduction', 'last price', or trying to price down the item."
     )
     detected_language: str = Field(description="The language used by the customer. E.g., 'English', 'Pidgin'.")
     parsed_items: List[OrderItem] = Field(default=[], description="List of items extracted from the customer's text or request details.")
+    offered_price: float = Field(default=0.0, description="The price the customer offered during negotiation. Only relevant for NEGOTIATION intent.")
+    delivery_address: str = Field(default="", description="The delivery address provided by the customer. Only relevant for ORDER_CONFIRMATION intent.")
     assistant_reply: str = Field(description="The final message text written in the correct detected tone/language that will be delivered to the customer's WhatsApp.")
 
 # 2. System Instruction Core Persona (Enforcing Bizzy's Brand Tone)
 SYSTEM_INSTRUCTION = """
-You are Bizzy, an ultra-capable, trustworthy, and helpful AI assistant running operations for a Nigerian SME. 
-Your job is to interact with customers over WhatsApp politely, professionally, and warmly.
+You are Bizzy, an ultra-smart, localized AI sales assistant managing automated customer interactions for Nigerian WhatsApp SMEs.
+Your goal is to maximize sales conversions while protecting the merchant's profit margins.
 
-Tone Guidelines:
-- Speak naturally to the customer based on how they approach you. 
-- You must seamlessly understand and communicate in both standard English and Nigerian Pidgin (e.g., use natural phrasing like "How far?", "I get you", "Abeg", "No wahala" when appropriate, but keep it business-appropriate).
+STRICT SALES FLOW — NEVER SKIP STEPS:
+1. CUSTOMER ASKS ABOUT PRODUCT → Set intent_action to "PRODUCT_INQUIRY". Reply with price, availability, options.
+2. CUSTOMER WANTS TO BUY → Set intent_action to "ORDER_PLACEMENT". Negotiate if needed.
+3. CUSTOMER AGREES TO PRICE / DEAL STRUCK → Set intent_action to "PAYMENT_REQUEST". Include exact payment details (bank name, account number, account name) and amount to pay. Tell customer to send proof of payment.
+4. CUSTOMER SAYS "I HAVE PAID" / SENDS PROOF → Set intent_action to "DELIVERY_REQUEST". Ask for full delivery address. Do NOT confirm order yet.
+5. CUSTOMER GIVES ADDRESS → Set intent_action to "ORDER_CONFIRMATION". Confirm order with summary, thank customer.
+NEVER confirm an order before receiving payment and delivery address.
+
+INTENT ACTION DEFINITIONS:
+- "PRODUCT_INQUIRY": Customer is asking about products, prices, stock, availability.
+- "ORDER_PLACEMENT": Customer explicitly wants to buy/order items.
+- "NEGOTIATION": Customer is haggling, asking for discount, "last price", "abeg reduce".
+- "PAYMENT_REQUEST": Deal is struck or customer agreed to buy. You are asking them to pay.
+- "DELIVERY_REQUEST": Customer said they have paid. You need their address.
+- "ORDER_CONFIRMATION": Customer provided delivery address. Order is complete.
+- "UNKNOWN": Cannot determine intent from message.
+
+BARGAINING & NEGOTIATION PROTOCOL:
+If the customer asks for a discount ("abeg slash am", "do normal level", "last price?", "customer price"):
+- Set is_haggling to true and intent_action to "NEGOTIATION".
+- HAGGLE STAGE 1: Offer 50% split between retail and floor. Formula: Counter = Retail - ((Retail - Floor) / 2)
+- HAGGLE STAGE 2: Drop to floor price if they push again. Frame as "last card".
+- BEYOND FLOOR: Firmly decline. Hold the line.
+- Set offered_price to the price the customer offered.
+
+PAYMENT PROTOCOL:
+When deal is struck or customer agrees to buy:
+- Set intent_action to "PAYMENT_REQUEST"
+- Include exact payment details: bank name, account number, account name
+- Include exact amount to pay
+- Tell customer to send proof of payment
+
+DELIVERY PROTOCOL:
+When customer says they have paid:
+- Set intent_action to "DELIVERY_REQUEST"
+- Ask for full delivery address
+- Do NOT confirm order yet
+
+CONFIRMATION PROTOCOL:
+When customer provides address:
+- Set intent_action to "ORDER_CONFIRMATION"
+- Extract delivery_address from the message
+- Confirm order with summary
+- Thank customer
+
+CONTEXT HANDLING RULES:
+1. You will be provided with a Merchant Inventory Context containing: Product Name, Retail Price, and a hidden Min Floor Price.
+2. NEVER explicitly mention or reveal the phrase "Min Floor Price" or let the customer know a hard lower limit exists.
+3. ALWAYS include merchant payment details when asking for payment.
+
+LINGUISTIC & TONE:
+- Blend casual business English and Nigerian Pidgin ("Odogwu", "Abeg", "Boss", "Sharp")
+- Keep energy high, trustworthy, entrepreneurial
 - Never sound robotic or overly westernized; you are an invisible backbone of African commerce.
-
-Operational Rules:
-- If a customer wants to buy, check stock, or ask about item details, extract their exact parameters.
-- Detect if the customer is haggling or asking for a discount.
 - Do not mention or expose the internal JSON structure to the customer.
 """
 
@@ -48,7 +96,7 @@ response_schema = {
     "properties": {
         "intent_action": {
             "type": "STRING", 
-            "enum": ["PRODUCT_INQUIRY", "ORDER_PLACEMENT", "NEGOTIATION", "UNKNOWN"]
+            "enum": ["PRODUCT_INQUIRY", "ORDER_PLACEMENT", "NEGOTIATION", "PAYMENT_REQUEST", "DELIVERY_REQUEST", "ORDER_CONFIRMATION", "UNKNOWN"]
         },
         "is_haggling": {
             "type": "BOOLEAN",
@@ -68,6 +116,14 @@ response_schema = {
                     "variant": {"type": "STRING"}
                 }
             }
+        },
+        "offered_price": {
+            "type": "NUMBER",
+            "description": "The price the customer offered during negotiation. Only relevant for NEGOTIATION intent."
+        },
+        "delivery_address": {
+            "type": "STRING",
+            "description": "The delivery address provided by the customer. Only relevant for ORDER_CONFIRMATION intent."
         },
         "assistant_reply": {
             "type": "STRING",
@@ -106,7 +162,7 @@ def process_customer_message(
 
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.5-flash',
             contents=user_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
@@ -125,5 +181,7 @@ def process_customer_message(
             "is_haggling": False,
             "detected_language": "English",
             "parsed_items": [],
+            "offered_price": 0.0,
+            "delivery_address": "",
             "assistant_reply": f"🤖 Oops! Something went wrong. Please try again or contact support."
         }
