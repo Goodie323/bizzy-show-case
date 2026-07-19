@@ -18,11 +18,12 @@ interface Bargain {
   final_price: number
   discount_percentage: number
   discount_amount: number
-  negotiation_rounds: number
-  starting_offer: number
+  negotiation_rounds?: number
+  starting_offer?: number
   outcome: string
-  started_at: string
-  completed_at: string | null
+  started_at?: string
+  completed_at?: string | null
+  created_at?: string
 }
 
 const outcomeConfig: Record<string, { icon: any; color: string; bg: string; label: string }> = {
@@ -57,7 +58,7 @@ export default function BargainsPage() {
   useEffect(() => {
     getBargains()
       .then((data) => {
-        setBargains(data.sort((a: Bargain, b: Bargain) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()))
+        setBargains(data.sort((a: Bargain, b: Bargain) => new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime()))
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -72,7 +73,7 @@ export default function BargainsPage() {
     rejected: bargains.filter((b) => b.outcome === "rejected").length,
     pending: bargains.filter((b) => b.outcome === "pending").length,
     totalDiscount: bargains.reduce((sum, b) => sum + (b.discount_amount || 0), 0),
-    avgRounds: bargains.length > 0 ? (bargains.reduce((sum, b) => sum + b.negotiation_rounds, 0) / bargains.length).toFixed(1) : "0",
+    avgRounds: bargains.length > 0 ? (bargains.reduce((sum, b) => sum + (b.negotiation_rounds || 0), 0) / bargains.length).toFixed(1) : "0",
   }
 
   const acceptanceRate = stats.total > 0 ? Math.round((stats.accepted / stats.total) * 100) : 0
@@ -193,7 +194,7 @@ export default function BargainsPage() {
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-muted-foreground hidden md:table-cell">
-                            {new Date(bargain.started_at).toLocaleDateString("en-NG", { month: "short", day: "numeric" })}
+                            {new Date(bargain.started_at || bargain.created_at || Date.now()).toLocaleDateString("en-NG", { month: "short", day: "numeric" })}
                           </td>
                         </tr>
                       )
