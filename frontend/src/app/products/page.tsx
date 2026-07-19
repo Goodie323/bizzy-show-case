@@ -15,16 +15,7 @@ import { formatNaira } from "@/lib/utils"
 import { useNotificationContext } from "@/components/notifications/NotificationProvider"
 import { Plus, Pencil, Trash2, Package, Loader2, Search, ImageIcon, TrendingDown, Sparkles } from "lucide-react"
 
-interface Product {
-  id: number
-  name: string
-  variant: string
-  price: number
-  min_floor_price: number
-  stock_quantity: number
-  is_available: boolean
-  image_url?: string
-}
+import { getProducts, Product } from "@/lib/api"
 
 function ProductAvatar({ name, imageUrl }: { name: string; imageUrl?: string }) {
   const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)

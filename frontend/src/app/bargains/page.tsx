@@ -10,21 +10,7 @@ import { getBargains } from "@/lib/api"
 import { formatNaira, formatPhone } from "@/lib/utils"
 import { MessageSquare, TrendingDown, CheckCircle, XCircle, Clock, Zap, Target, Percent, TrendingUp } from "lucide-react"
 
-interface Bargain {
-  id: number
-  product_id: number
-  customer_number: string
-  original_price: number
-  final_price: number
-  discount_percentage: number
-  discount_amount: number
-  negotiation_rounds?: number
-  starting_offer?: number
-  outcome: string
-  started_at?: string
-  completed_at?: string | null
-  created_at?: string
-}
+
 
 const outcomeConfig: Record<string, { icon: any; color: string; bg: string; label: string }> = {
   accepted: { icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200", label: "Accepted" },

@@ -1,16 +1,19 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://bizzy-engine.onrender.com/api/v1";
 
-// Response Types
-interface OTPVerifyResponse {
+// ============================================================================
+// SHARED TYPES — Export these and use them in every page
+// ============================================================================
+
+export interface OTPVerifyResponse {
   access_token: string;
 }
 
-interface OTPResponse {
+export interface OTPResponse {
   message: string;
   expires_in?: number;
 }
 
-interface Product {
+export interface Product {
   id: number;
   name: string;
   variant: string;
@@ -18,12 +21,12 @@ interface Product {
   min_floor_price: number;
   stock_quantity: number;
   merchant_id: number;
-  is_available?: boolean; 
+  is_available?: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
-interface OrderItem {
+export interface OrderItem {
   product_id: number;
   product_name: string;
   quantity: number;
@@ -31,7 +34,7 @@ interface OrderItem {
   total: number;
 }
 
-interface Order {
+export interface Order {
   id: number;
   merchant_id: number;
   customer_number: string;
@@ -40,25 +43,32 @@ interface Order {
   total_amount: number;
   order_status: string;
   payment_status: string;
+  delivery_status?: string;
   delivery_address?: string;
   created_at: string;
+  updated_at?: string;
   confirmed_at?: string;
 }
 
-interface BargainLog {
+export interface Bargain {
   id: number;
   merchant_id: number;
   customer_number: string;
   product_id: number;
+  product_name?: string;
   original_price: number;
   final_price: number;
+  starting_offer?: number;
+  negotiation_rounds?: number;
   discount_percentage: number;
   discount_amount: number;
   outcome: string;
-  created_at: string;
+  started_at?: string;
+  completed_at?: string | null;
+  created_at?: string;
 }
 
-interface Merchant {
+export interface Merchant {
   id: number;
   business_name: string;
   bizzy_number: string;
@@ -68,24 +78,28 @@ interface Merchant {
   created_at?: string;
 }
 
-interface AnalyticsOverview {
+export interface AnalyticsOverview {
   total_revenue: number;
   total_orders: number;
   total_products: number;
   total_bargains: number;
 }
 
-interface DailyRevenue {
+export interface DailyRevenue {
   date: string;
   revenue: number;
   order_count: number;
 }
 
-interface RevenueData {
+export interface RevenueData {
   period: string;
   revenue: number;
   order_count: number;
 }
+
+// ============================================================================
+// FETCHER
+// ============================================================================
 
 async function fetcher<T>(path: string, options?: RequestInit): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("bizzy_token") : null;
@@ -106,6 +120,10 @@ async function fetcher<T>(path: string, options?: RequestInit): Promise<T> {
 
   return res.json();
 }
+
+// ============================================================================
+// API FUNCTIONS
+// ============================================================================
 
 // Auth
 export const sendOTP = (phone: string) =>
@@ -134,7 +152,7 @@ export const updateOrderStatus = (id: number, data: { order_status: string }) =>
   fetcher<Order>(`/orders/${id}/status`, { method: "PATCH", body: JSON.stringify(data) });
 
 // Bargains
-export const getBargains = () => fetcher<BargainLog[]>("/bargains");
+export const getBargains = () => fetcher<Bargain[]>("/bargains");
 
 // Merchant
 export const getMerchant = () => fetcher<Merchant>("/merchant");

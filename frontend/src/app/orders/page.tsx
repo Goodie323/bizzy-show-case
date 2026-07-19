@@ -11,6 +11,7 @@ import { Pagination } from "@/components/ui/pagination"
 import { getOrders, updateOrderStatus } from "@/lib/api"
 import { formatNaira, formatPhone } from "@/lib/utils"
 import { ShoppingCart, Loader2, Eye, Package, Truck, CreditCard, User, MapPin, ChevronRight, CheckCircle2, Clock } from "lucide-react"
+import { getOrders, Order, updateOrderStatus } from "@/lib/api
 
 interface OrderItem {
   product_id: number
@@ -20,21 +21,6 @@ interface OrderItem {
   total: number
 }
 
-interface Order {
-  id: number
-  customer_number: string
-  order_reference: string
-  items_ordered: OrderItem[]
-  total_amount: number
-  order_status: string
-  payment_status: string
-  delivery_status?: string
-  delivery_address?: string
-  payment_method?: string
-  notes?: string
-  created_at: string
-  updated_at?: string
-}
 
 const statusConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
   pending: { color: "text-amber-700", bg: "bg-amber-50 border-amber-200", icon: Clock, label: "Pending" },
