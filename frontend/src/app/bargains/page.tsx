@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Pagination } from "@/components/ui/pagination"
-import { getBargains } from "@/lib/api"
+import { getBargains, Bargain } from "@/lib/api"
 import { formatNaira, formatPhone } from "@/lib/utils"
 import { MessageSquare, TrendingDown, CheckCircle, XCircle, Clock, Zap, Target, Percent, TrendingUp } from "lucide-react"
 
