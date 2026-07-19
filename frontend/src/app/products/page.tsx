@@ -10,11 +10,9 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Pagination } from "@/components/ui/pagination"
-import { getProducts, createProduct, updateProduct, deleteProduct } from "@/lib/api"
 import { formatNaira } from "@/lib/utils"
 import { useNotificationContext } from "@/components/notifications/NotificationProvider"
 import { Plus, Pencil, Trash2, Package, Loader2, Search, ImageIcon, TrendingDown, Sparkles } from "lucide-react"
-
 import { getProducts, Product } from "@/lib/api"
 
 function ProductAvatar({ name, imageUrl }: { name: string; imageUrl?: string }) {
