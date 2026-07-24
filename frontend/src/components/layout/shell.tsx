@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { NotificationBell } from "@/components/notifications/NotificationBell"
 import { 
   LayoutDashboard, Package, ShoppingCart, MessageSquare, Settings, 
-  LogOut, Store, Menu, X, ChevronRight, Moon, Sun, Users, Bell
+  LogOut, Store, Menu, X, ChevronRight, Moon, Sun, Users, Bell,
+  CreditCard
 } from "lucide-react"
 
 const nav = [
@@ -17,6 +18,7 @@ const nav = [
   { href: "/orders", label: "Orders", icon: ShoppingCart, description: "Sales & fulfillment" },
   { href: "/customers", label: "Customers", icon: Users, description: "Customer profiles" },
   { href: "/bargains", label: "Bargains", icon: MessageSquare, description: "AI negotiations" },
+  { href: "/pricing", label: "Pricing", icon: CreditCard, description: "Plans & billing" },
   { href: "/settings", label: "Settings", icon: Settings, description: "Business profile" },
 ]
 

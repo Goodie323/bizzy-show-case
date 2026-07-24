@@ -9,7 +9,11 @@ export default function HomePage() {
 
   useEffect(() => {
     const token = localStorage.getItem("bizzy_token");
-    router.push(token ? "/dashboard" : "/login");
+    if (token) {
+      router.push("/dashboard");
+    } else {
+      router.push("/pricing");
+    }
   }, [router]);
 
   return (
