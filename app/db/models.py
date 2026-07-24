@@ -29,6 +29,11 @@ class Merchant(Base):
     sales_ledger = relationship("SalesLedger", back_populates="merchant", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="merchant", cascade="all, delete-orphan")
     bargain_logs = relationship("BargainLog", back_populates="merchant", cascade="all, delete-orphan")
+    
+    # -------------------------------------------------------------------------
+    # NEW: Chat history relationship for LLM multi-turn context memory
+    # -------------------------------------------------------------------------
+    chat_messages = relationship("ChatMessage", back_populates="merchant", cascade="all, delete-orphan")
 
 
 class Product(Base):
@@ -57,6 +62,7 @@ class Product(Base):
     # Relationships
     merchant = relationship("Merchant", back_populates="products")
     bargain_logs = relationship("BargainLog", back_populates="product", cascade="all, delete-orphan")
+
 
 class FAQ(Base):
     __tablename__ = "faqs"
@@ -267,3 +273,26 @@ class ProductAnalytics(Base):
     # Relationships
     product = relationship("Product")
     merchant = relationship("Merchant")
+
+
+# =============================================================================
+# NEW MODEL: ChatMessage
+# Stores turn-by-turn conversation history per customer for LLM multi-turn
+# context memory. Added below all existing models to prevent import/parse issues.
+# =============================================================================
+class ChatMessage(Base):
+    """
+    Stores turn-by-turn conversation history per customer 
+    for LLM multi-turn context memory.
+    """
+    __tablename__ = 'chat_messages'
+
+    id = Column(Integer, primary_key=True, index=True)
+    merchant_id = Column(Integer, ForeignKey('merchants.id', ondelete="CASCADE"), nullable=False, index=True)
+    customer_number = Column(String, nullable=False, index=True)  # Customer WhatsApp number
+    role = Column(String, nullable=False)                         # 'user' or 'assistant'
+    content = Column(Text, nullable=False)                        # Message text
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+    # Relationship back to Merchant
+    merchant = relationship("Merchant", back_populates="chat_messages")
