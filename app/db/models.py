@@ -35,6 +35,15 @@ class Merchant(Base):
     # -------------------------------------------------------------------------
     chat_messages = relationship("ChatMessage", back_populates="merchant", cascade="all, delete-orphan")
 
+    # =============================================================================
+    # PAYSTACK SUBACCOUNT FIELDS (Instant Settlement)
+    # =============================================================================
+    paystack_subaccount_code = Column(String, nullable=True)
+    settlement_bank_code = Column(String, nullable=True)
+    settlement_account_number = Column(String, nullable=True)
+    platform_fee_percent = Column(Numeric(5, 2), default=0.0)
+    transfer_recipient_code = Column(String, nullable=True)
+
 
 class Product(Base):
     """
@@ -139,6 +148,17 @@ class Order(Base):
     # Relationships
     merchant = relationship("Merchant", back_populates="orders")
     bargain_logs = relationship("BargainLog", back_populates="order", cascade="all, delete-orphan")
+
+    # =============================================================================
+    # PAYSTACK PAYMENT FIELDS
+    # =============================================================================
+    paystack_reference = Column(String, nullable=True, index=True)
+    paystack_account_number = Column(String, nullable=True)
+    paystack_bank_name = Column(String, nullable=True)
+    paystack_expires_at = Column(DateTime, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    settlement_status = Column(String, default="pending")
+    settlement_reference = Column(String, nullable=True)
 
 
 class BargainLog(Base):

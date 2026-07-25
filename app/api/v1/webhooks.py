@@ -14,14 +14,22 @@ import logging
 
 from app.schemas.whatsapp import WhatsAppWebhookPayload
 from app.api.deps import get_db
-# Ensure SessionLocal is imported to safely generate thread-independent DB sessions
-from app.db.session import SessionLocal 
+from app.db.session import SessionLocal
 from app.db.models import Merchant, Product, Order, BargainLog, ChatMessage
 from app.core.filter import analyze_intent_and_route
 from app.core.gemini import process_customer_message
 from app.core.twillo_client import send_twilio_whatsapp_message
+from app.core.paystack import (
+    initialize_transaction,
+    calculate_settlement,
+    is_above_floor,
+    MINIMUM_TRANSACTION,
+    PLATFORM_FEE_PERCENT,
+    PAYSTACK_FEE_PERCENT,
+    PAYSTACK_FEE_FLAT
+)
+from app.core.receipt import generate_receipt_pdf
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -33,7 +41,7 @@ VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "bizzy_secure_token_2026")
 MAX_RETRIES = 3
 DUPLICATE_WINDOW_MINUTES = 5
 STOCK_ALERT_THRESHOLD = 5
-CHAT_HISTORY_LIMIT = 6  # Number of prior turns to feed into Gemini context
+CHAT_HISTORY_LIMIT = 6
 
 
 # ============================================
@@ -47,9 +55,8 @@ def run_sync(coro):
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    
+
     if loop.is_running():
-        # If the thread already has a running loop, execute as a future
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
     else:
         return loop.run_until_complete(coro)
@@ -68,14 +75,14 @@ def is_duplicate_request(
 ) -> bool:
     """Check if this is a duplicate request within the time window."""
     message_hash = calculate_product_hash(message_text, customer_phone)
-    
+
     existing_order = db.query(Order).filter(
         Order.customer_number == customer_phone,
         Order.message_hash == message_hash,
         Order.merchant_id == merchant_id,
         Order.created_at > datetime.now() - timedelta(minutes=DUPLICATE_WINDOW_MINUTES)
     ).first()
-    
+
     return existing_order is not None
 
 
@@ -85,16 +92,16 @@ def get_catalog_context(db: Session, merchant_id: int) -> Dict[str, Any]:
         Merchant.id == merchant_id,
         Merchant.is_active == True
     ).first()
-    
+
     if not merchant:
         logger.error(f"Merchant {merchant_id} not found or inactive")
         return {"business_name": "Unknown", "catalog": "No catalog available"}
-    
+
     products = db.query(Product).filter(
         Product.merchant_id == merchant_id,
-        Product.stock_quantity > 0  # Only show in-stock items
+        Product.stock_quantity > 0
     ).all()
-    
+
     catalog_text = "Merchant Available Stock Inventory Catalog:\n"
     for prod in products:
         stock_status = "🟢 In Stock" if prod.stock_quantity > STOCK_ALERT_THRESHOLD else "🟡 Low Stock"
@@ -104,7 +111,7 @@ def get_catalog_context(db: Session, merchant_id: int) -> Dict[str, Any]:
             f"Min Price: ₦{prod.min_floor_price} | "
             f"Stock: {prod.stock_quantity} {stock_status}\n"
         )
-    
+
     return {
         "business_name": merchant.business_name,
         "catalog": catalog_text,
@@ -120,7 +127,6 @@ def match_product(
     product_id: Optional[int] = None
 ) -> Optional[Product]:
     """Enhanced product matching with multiple strategies."""
-    # Strategy 1: Exact match by ID
     if product_id:
         product = db.query(Product).filter(
             Product.id == product_id,
@@ -128,32 +134,28 @@ def match_product(
         ).first()
         if product: 
             return product
-    
-    # Strategy 2: Exact name match (case insensitive)
+
     product = db.query(Product).filter(
         Product.merchant_id == merchant_id,
         func.lower(Product.name) == func.lower(product_name.strip())
     ).first()
     if product:
         return product
-    
-    # Strategy 3: Partial match with priority (longest match first)
+
     products = db.query(Product).filter(
         Product.merchant_id == merchant_id,
         func.lower(Product.name).contains(func.lower(product_name.strip()))
     ).all()
-    
+
     if products:
-        # Sort by match relevance (exact match first, then by name length)
         products.sort(key=lambda p: len(p.name) - len(product_name))
-        return products[0]  # Return the most relevant match
-    
-    # Strategy 4: Fuzzy matching using ILIKE (fallback)
+        return products[0]
+
     product = db.query(Product).filter(
         Product.merchant_id == merchant_id,
         Product.name.ilike(f"%{product_name}%")
     ).first()
-    
+
     return product
 
 
@@ -163,7 +165,7 @@ def send_slack_alert(message: str, severity: str = "warning"):
 
 
 # =============================================================================
-# NEW: CHAT HISTORY HELPERS
+# CHAT HISTORY HELPERS
 # =============================================================================
 
 def load_chat_history(
@@ -186,7 +188,6 @@ def load_chat_history(
         .limit(limit)
         .all()
     )
-    # Reverse to chronological order (oldest first) for Gemini context
     return [{"role": msg.role, "content": msg.content} for msg in reversed(messages)]
 
 
@@ -242,8 +243,7 @@ async def handle_whatsapp_webhook(
     1. Meta/WhatsApp Cloud API (JSON payload)
     2. Twilio WhatsApp API (Form data)
     """
-    
-    # Check if this is a Twilio webhook (form data present)
+
     if From and To and Body is not None:
         return await handle_twilio_webhook(
             From=From,
@@ -252,8 +252,7 @@ async def handle_whatsapp_webhook(
             background_tasks=background_tasks,
             db=db
         )
-    
-    # Otherwise, try to parse as Meta/WhatsApp Cloud API (JSON)
+
     try:
         payload_data = await request.json()
         payload = WhatsAppWebhookPayload(**payload_data)
@@ -288,7 +287,6 @@ async def handle_twilio_webhook(
     customer_phone = From.replace("whatsapp:", "")
     bizzy_number = To.replace("whatsapp:", "")
 
-    # Multi-tenant Merchant Lookup
     merchant = db.query(Merchant).filter(
         Merchant.bizzy_number == bizzy_number,
         Merchant.is_active == True
@@ -308,7 +306,6 @@ async def handle_twilio_webhook(
 
     routing_decision = analyze_intent_and_route(Body)
 
-    # FORCE LLM for product/buying intent messages (bypass overly-aggressive filter)
     buying_keywords = ["want", "buy", "price", "how much", "cost", "available", "stock", 
                        "negotiate", "discount", "last price", "do am", "send", "order",
                        "get", "need", "looking for", "interested", "pay", "paid", "delivery",
@@ -382,7 +379,6 @@ async def handle_meta_webhook(
                         message_body = message.text.body
                         routing_decision = analyze_intent_and_route(message_body)
 
-                        # FORCE LLM for product/buying intent messages
                         buying_keywords = ["want", "buy", "price", "how much", "cost", "available", "stock", 
                                            "negotiate", "discount", "last price", "do am", "send", "order",
                                            "get", "need", "looking for", "interested", "pay", "paid", "delivery",
@@ -419,13 +415,13 @@ async def handle_meta_webhook(
 
 
 # ============================================
-# WORKER FUNCTIONS (OFFLOADED TO THREAD POOLS)
+# WORKER FUNCTIONS
 # ============================================
 
 def dispatch_static_template(customer_phone: str, template_type: str, merchant_id: int):
     """Dispatch pre-defined template responses."""
     logger.info(f"⚡ STATIC ROUTING: {template_type}")
-    
+
     if template_type == "GREETING":
         message_content = "How far, boss! Welcome to our store. Wetin you wan buy today? 😊"
     else:
@@ -440,15 +436,12 @@ def dispatch_gemini_intelligence_pipeline(
     merchant_id: int
 ):
     """
-    Enhanced Gemini AI-powered bargaining engine with full context memory.
+    Enhanced Gemini AI-powered bargaining engine with full context memory and Paystack integration.
     """
     logger.info("🚀 BIZZY CORE BARGAINING ENGINE LAUNCHED")
-    
-    # Establish independent connection inside the background thread
+
     with SessionLocal() as db:
-        # ==========================================
         # 1. IDEMPOTENCY CHECK
-        # ==========================================
         if is_duplicate_request(db, customer_phone, message_text, merchant_id):
             logger.warning(f"⚠️ Duplicate request detected for {customer_phone}")
             run_sync(send_twilio_whatsapp_message(
@@ -456,10 +449,8 @@ def dispatch_gemini_intelligence_pipeline(
                 body_text="We're already processing your request. Please wait a moment."
             ))
             return
-        
-        # ==========================================
-        # 2. PERSIST INCOMING CUSTOMER MESSAGE
-        # ==========================================
+
+        # 2. SAVE INCOMING CUSTOMER MESSAGE
         save_chat_turn(
             db=db,
             merchant_id=merchant_id,
@@ -467,12 +458,10 @@ def dispatch_gemini_intelligence_pipeline(
             role="user",
             content=message_text
         )
-        
-        # ==========================================
-        # 3. FETCH CATALOG WITH LOCKING
-        # ==========================================
+
+        # 3. FETCH CATALOG
         catalog_data = get_catalog_context(db, merchant_id)
-        
+
         if not catalog_data.get("products"):
             logger.warning(f"No products found for merchant {merchant_id}")
             run_sync(send_twilio_whatsapp_message(
@@ -480,19 +469,15 @@ def dispatch_gemini_intelligence_pipeline(
                 body_text="Our catalog is currently being updated. Please check back soon! 🙏"
             ))
             return
-        
-        # ==========================================
-        # 4. LOAD CHAT HISTORY FOR CONTEXT
-        # ==========================================
+
+        # 4. LOAD CHAT HISTORY
         chat_history = load_chat_history(
             db=db,
             merchant_id=merchant_id,
             customer_phone=customer_phone
         )
-        
-        # ==========================================
-        # 5. PROCESS AI RESPONSE WITH HISTORY
-        # ==========================================
+
+        # 5. PROCESS WITH GEMINI
         try:
             raw_ai_response = process_customer_message(
                 message_text=message_text,
@@ -503,17 +488,15 @@ def dispatch_gemini_intelligence_pipeline(
                 },
                 chat_history=chat_history
             )
-            
+
             ai_response = json.loads(raw_ai_response) if isinstance(raw_ai_response, str) else raw_ai_response
-            
+
             intent_action = ai_response.get("intent_action")
             assistant_reply = ai_response.get("assistant_reply")
-            
+
             logger.info(f"🧠 INTENT: {intent_action} | Haggling: {ai_response.get('is_haggling')}")
-            
-            # ==========================================
-            # 6. PERSIST ASSISTANT REPLY
-            # ==========================================
+
+            # 6. SAVE ASSISTANT REPLY
             if assistant_reply:
                 save_chat_turn(
                     db=db,
@@ -522,11 +505,8 @@ def dispatch_gemini_intelligence_pipeline(
                     role="assistant",
                     content=assistant_reply
                 )
-            
-            # ==========================================
-            # 7. ROUTE ALL SALES INTENTS TO ORDER PIPELINE
-            # ==========================================
-            # FIXED: Expanded intent gate to include all sales flow states
+
+            # 7. ROUTE ALL SALES INTENTS
             sales_intents = [
                 "ORDER_PLACEMENT",
                 "NEGOTIATION", 
@@ -534,7 +514,7 @@ def dispatch_gemini_intelligence_pipeline(
                 "DELIVERY_REQUEST",
                 "ORDER_CONFIRMATION"
             ]
-            
+
             if intent_action in sales_intents:
                 process_order_or_negotiation(
                     db=db,
@@ -546,13 +526,12 @@ def dispatch_gemini_intelligence_pipeline(
                     message_text=message_text
                 )
             else:
-                # Just send the AI reply for non-sales intents (inquiry, unknown)
                 if assistant_reply:
                     run_sync(send_twilio_whatsapp_message(
                         to_number=customer_phone, 
                         body_text=assistant_reply
                     ))
-        
+
         except OperationalError as e:
             db.rollback()
             logger.error(f"❌ Database deadlock in pipeline: {str(e)}")
@@ -564,18 +543,14 @@ def dispatch_gemini_intelligence_pipeline(
                 f"DB deadlock for merchant {merchant_id}: {str(e)}",
                 severity="critical"
             )
-        
+
         except Exception as e:
             db.rollback()
             logger.error(f"❌ Pipeline Error: {str(e)}")
-            
-            # Send friendly error to customer
             run_sync(send_twilio_whatsapp_message(
                 to_number=customer_phone,
                 body_text="🤖 Oops! Something went wrong. Please try again or contact support."
             ))
-            
-            # Alert engineering team
             send_slack_alert(
                 f"Bargaining engine error for merchant {merchant_id}: {str(e)}",
                 severity="critical"
@@ -597,65 +572,67 @@ def process_order_or_negotiation(
     merchant = catalog_data.get("merchant")
     parsed_items = ai_response.get("parsed_items", [])
 
-    # Initialize tracking variables
     order_items = []
     total_amount = Decimal("0")
     order_success = True
 
     # ==========================================
-    # STAGE 0: MATCH ITEMS & VALIDATE STOCK (NO DEDUCTION YET)
+    # STAGE 0: MATCH ITEMS & VALIDATE STOCK (NO DEDUCTION)
     # ==========================================
-    matched_products = []  # Store (product, qty, final_price) tuples for later
-    
+    matched_products = []
+
     for item in parsed_items:
         product_name = item.get("product_name", "")
         requested_qty = item.get("quantity", 1)
 
         try:
-            # Use row-level locking for stock validation
             matched_prod = db.query(Product).filter(
                 Product.merchant_id == merchant_id,
                 func.lower(Product.name) == func.lower(product_name.strip())
-            ).with_for_update().first()  # 🔒 Row-level lock
+            ).with_for_update().first()
 
             if not matched_prod:
-                # Try fallback matching
                 matched_prod = match_product(db, merchant_id, product_name)
 
             if not matched_prod:
                 logger.warning(f"Product not found: {product_name}")
-                run_sync(send_twilio_whatsapp_message(
-                    to_number=customer_phone,
-                    body_text=f"Sorry, we couldn't find '{product_name}'. Please check the name."
-                ))
+                if assistant_reply:
+                    run_sync(send_twilio_whatsapp_message(
+                        to_number=customer_phone,
+                        body_text=assistant_reply
+                    ))
+                else:
+                    run_sync(send_twilio_whatsapp_message(
+                        to_number=customer_phone,
+                        body_text=f"Sorry, we couldn't find '{product_name}'. Please check the name."
+                    ))
                 order_success = False
                 continue
 
-            # ==========================================
-            # STOCK VALIDATION ONLY (NO DEDUCTION)
-            # ==========================================
+            # STOCK VALIDATION ONLY — NO DEDUCTION
             if matched_prod.stock_quantity < requested_qty:
                 logger.warning(f"Insufficient stock for {matched_prod.name}")
-                run_sync(send_twilio_whatsapp_message(
-                    to_number=customer_phone,
-                    body_text=f"⚠️ Only {matched_prod.stock_quantity} units of {matched_prod.name} left. Please reduce quantity."
-                ))
+                if assistant_reply:
+                    run_sync(send_twilio_whatsapp_message(
+                        to_number=customer_phone,
+                        body_text=assistant_reply
+                    ))
+                else:
+                    run_sync(send_twilio_whatsapp_message(
+                        to_number=customer_phone,
+                        body_text=f"⚠️ Only {matched_prod.stock_quantity} units of {matched_prod.name} left. Please reduce quantity."
+                    ))
                 order_success = False
                 continue
 
-            # ==========================================
             # NEGOTIATION HANDLING
-            # ==========================================
-            final_price = matched_prod.price  # Default to retail price
+            final_price = matched_prod.price
 
             if intent_action == "NEGOTIATION":
                 offered_price = ai_response.get("offered_price", matched_prod.price)
 
-                # Check if offer meets minimum floor price
                 if Decimal(str(offered_price)) >= matched_prod.min_floor_price:
-                    # Accept offer
                     final_price = offered_price
-                    # Log the accepted bargain
                     bargain_log = BargainLog(
                         merchant_id=merchant_id,
                         customer_number=customer_phone,
@@ -667,10 +644,8 @@ def process_order_or_negotiation(
                     )
                     db.add(bargain_log)
                 else:
-                    # Counter-offer formula
                     counter_price = matched_prod.min_floor_price + (matched_prod.price - matched_prod.min_floor_price) * Decimal("0.3")
 
-                    # Log the counter-offer
                     bargain_log = BargainLog(
                         merchant_id=merchant_id,
                         customer_number=customer_phone,
@@ -683,17 +658,16 @@ def process_order_or_negotiation(
                     )
                     db.add(bargain_log)
                     db.commit()
-                    
-                    # Send Gemini's localized counter-offer reply (NOT hardcoded template)
-                    # The assistant_reply from Gemini already contains the negotiation response
+
+                    # Send Gemini's localized reply — NOT hardcoded template
                     if assistant_reply:
                         run_sync(send_twilio_whatsapp_message(
                             to_number=customer_phone,
                             body_text=assistant_reply
                         ))
-                    return  # Exit, waiting for customer response to counter-offer
+                    return
 
-            # Store for later deduction (only after payment/confirmation)
+            # Store for later deduction
             item_total = Decimal(str(final_price)) * requested_qty
             matched_products.append({
                 "product": matched_prod,
@@ -705,7 +679,7 @@ def process_order_or_negotiation(
             })
             total_amount += item_total
 
-            # Stock alert for low inventory (informational only, no deduction)
+            # Stock alert (informational only)
             if matched_prod.stock_quantity <= STOCK_ALERT_THRESHOLD:
                 send_slack_alert(
                     f"⚠️ Low stock alert: {matched_prod.name} (Merchant {merchant_id}) - {matched_prod.stock_quantity} remaining",
@@ -723,17 +697,16 @@ def process_order_or_negotiation(
             break
 
     # ==========================================
-    # STAGE 1: NEGOTIATION (send payment details after deal)
+    # STAGE 1: NEGOTIATION (deal struck, send payment details)
     # ==========================================
     if intent_action == "NEGOTIATION" and order_success and matched_products:
-        # Use Gemini's assistant_reply for the deal confirmation (localized, Pidgin/English)
+        # Use Gemini's localized reply
         if assistant_reply:
             run_sync(send_twilio_whatsapp_message(
                 to_number=customer_phone,
                 body_text=assistant_reply
             ))
         else:
-            # Fallback only if assistant_reply is somehow empty
             payment_msg = (
                 f"✅ Deal!\n\n"
                 f"Pay to:\n{merchant.payment_details}\n"
@@ -745,7 +718,6 @@ def process_order_or_negotiation(
                 body_text=payment_msg
             ))
 
-        # Build order_items JSON for pending order (stock NOT deducted yet)
         order_items = [
             {
                 "product_id": mp["product_id"],
@@ -756,52 +728,161 @@ def process_order_or_negotiation(
             }
             for mp in matched_products
         ]
-        
+
         create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
-        return  # EXIT — wait for payment
+        return
 
     # ==========================================
-    # STAGE 2: PAYMENT REQUEST (fresh order, no negotiation)
+    # STAGE 2: PAYMENT REQUEST (Paystack virtual account)
     # ==========================================
     elif intent_action == "PAYMENT_REQUEST" and order_success and matched_products:
-        # Use Gemini's assistant_reply (contains itemized cart + payment details)
-        if assistant_reply:
-            run_sync(send_twilio_whatsapp_message(
-                to_number=customer_phone,
-                body_text=assistant_reply
-            ))
-        else:
-            # Fallback only if assistant_reply is empty
-            payment_msg = (
-                f"✅ Great choice!\n\n"
-                f"Pay to:\n{merchant.payment_details}\n"
-                f"Amount: ₦{int(total_amount)}\n\n"
-                f"Send proof of payment when done!"
+        total = float(total_amount)
+
+        # Check minimum floor for Paystack
+        if not is_above_floor(Decimal(str(total))):
+            # Manual fallback for small amounts
+            if assistant_reply:
+                run_sync(send_twilio_whatsapp_message(
+                    to_number=customer_phone,
+                    body_text=assistant_reply
+                ))
+            else:
+                manual_msg = (
+                    f"✅ Great choice!\n\n"
+                    f"Total: ₦{int(total)}\n\n"
+                    f"Please transfer directly to:\n"
+                    f"{merchant.payment_details}\n\n"
+                    f"Send proof of payment when done!"
+                )
+                run_sync(send_twilio_whatsapp_message(
+                    to_number=customer_phone,
+                    body_text=manual_msg
+                ))
+
+            order_items = [
+                {
+                    "product_id": mp["product_id"],
+                    "product_name": mp["product_name"],
+                    "quantity": mp["quantity"],
+                    "unit_price": mp["unit_price"],
+                    "total": mp["total"]
+                }
+                for mp in matched_products
+            ]
+            create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
+            return
+
+        # Paystack virtual account flow
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            paystack_ref = f"BIZ-{merchant_id}-{timestamp}-{customer_phone[-4:]}"
+
+            # Check merchant has subaccount
+            if not merchant.paystack_subaccount_code:
+                logger.error(f"Merchant {merchant_id} has no Paystack subaccount")
+                raise Exception("Merchant not configured for payments")
+
+            paystack_data = initialize_transaction(
+                email=f"{customer_phone}@bizzy.app",
+                amount_kobo=int(total * 100),
+                reference=paystack_ref,
+                subaccount_code=merchant.paystack_subaccount_code,
+                channels=["bank_transfer"]
             )
+
+            # Build order items
+            order_items = [
+                {
+                    "product_id": mp["product_id"],
+                    "product_name": mp["product_name"],
+                    "quantity": mp["quantity"],
+                    "unit_price": mp["unit_price"],
+                    "total": mp["total"]
+                }
+                for mp in matched_products
+            ]
+
+            # Create order with Paystack details
+            new_order = Order(
+                merchant_id=merchant_id,
+                customer_number=customer_phone,
+                order_reference=f"ORD-{timestamp}-{customer_phone[-4:]}",
+                message_hash=calculate_product_hash(message_text, customer_phone),
+                items_ordered=order_items,
+                total_amount=total_amount,
+                order_status="pending",
+                payment_status="pending",
+                paystack_reference=paystack_ref,
+                paystack_expires_at=datetime.now() + timedelta(minutes=30)
+            )
+            db.add(new_order)
+            db.commit()
+
+            # Send WhatsApp with virtual account details
+            expiry_time = new_order.paystack_expires_at.strftime("%I:%M %p")
+
+            # Build cart summary
+            cart_summary = "🛒 *Your Order Cart:*\n"
+            for item in order_items:
+                cart_summary += f"• {item['quantity']}x {item['product_name']} @ ₦{int(item['unit_price'])} = ₦{int(item['total'])}\n"
+
+            payment_msg = (
+                f"{cart_summary}"
+                f"\n💰 *Total: ₦{int(total)}*\n\n"
+                f"🏦 *Transfer to:*\n"
+                f"Bank: {paystack_data.get('bank_name', 'Wema Bank')}\n"
+                f"Account: {paystack_data.get('account_number', 'Generating...')}\n"
+                f"Name: PAYSTACK/BIZZY-{merchant.business_name[:15].upper()}\n\n"
+                f"⏰ *EXPIRES AT {expiry_time}*\n"
+                f"Money sent after expiry will bounce back to your bank in 1-3 days.\n\n"
+                f"Reply *PAID* once you complete the transfer."
+            )
+
             run_sync(send_twilio_whatsapp_message(
                 to_number=customer_phone,
                 body_text=payment_msg
             ))
 
-        order_items = [
-            {
-                "product_id": mp["product_id"],
-                "product_name": mp["product_name"],
-                "quantity": mp["quantity"],
-                "unit_price": mp["unit_price"],
-                "total": mp["total"]
-            }
-            for mp in matched_products
-        ]
-        
-        create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
+        except Exception as e:
+            logger.error(f"Paystack initialization failed: {str(e)}")
+            db.rollback()
+
+            # Fallback to manual payment
+            if assistant_reply:
+                run_sync(send_twilio_whatsapp_message(
+                    to_number=customer_phone,
+                    body_text=assistant_reply
+                ))
+            else:
+                fallback_msg = (
+                    f"✅ Total: ₦{int(total)}\n\n"
+                    f"Please pay to:\n{merchant.payment_details}\n\n"
+                    f"Send proof when done!"
+                )
+                run_sync(send_twilio_whatsapp_message(
+                    to_number=customer_phone,
+                    body_text=fallback_msg
+                ))
+
+            # Still create pending order for manual tracking
+            order_items = [
+                {
+                    "product_id": mp["product_id"],
+                    "product_name": mp["product_name"],
+                    "quantity": mp["quantity"],
+                    "unit_price": mp["unit_price"],
+                    "total": mp["total"]
+                }
+                for mp in matched_products
+            ]
+            create_pending_order(db, customer_phone, merchant_id, order_items, total_amount)
+
         return
 
     # ==========================================
     # STAGE 3: DELIVERY REQUEST (customer says they paid)
     # ==========================================
     elif intent_action == "DELIVERY_REQUEST":
-        # Use Gemini's assistant_reply for the delivery request (localized)
         if assistant_reply:
             run_sync(send_twilio_whatsapp_message(
                 to_number=customer_phone,
@@ -813,34 +894,31 @@ def process_order_or_negotiation(
                 body_text="✅ Payment received! Where should we deliver your order?\n\nPlease send your full address."
             ))
 
-        # Update order status to payment_confirmed
         update_order_status(db, customer_phone, merchant_id, payment_status="confirmed")
         return
 
     # ==========================================
-    # STAGE 4: ORDER CONFIRMATION (customer gives address)
+    # STAGE 4: ORDER CONFIRMATION (customer gives address — DEDUCT STOCK HERE)
     # ==========================================
     elif intent_action == "ORDER_CONFIRMATION":
         delivery_address = ai_response.get("delivery_address", message_text)
 
-        # DEDUCT STOCK ONLY AT CONFIRMATION (when deal is locked)
+        # DEDUCT STOCK ONLY AT CONFIRMATION (deal is locked)
         for mp in matched_products:
             mp["product"].stock_quantity -= mp["quantity"]
-            db.add(mp["product"])  # Mark as modified
+            db.add(mp["product"])
 
-        # Update order with address and deduct stock
         update_order_with_address(db, customer_phone, merchant_id, delivery_address)
 
         # Generate receipt
-        receipt_url = generate_receipt(db, customer_phone, merchant_id)
+        receipt_url = generate_receipt_pdf(db, customer_phone, merchant_id)
 
-        # Use Gemini's assistant_reply for confirmation (localized)
         if assistant_reply:
             summary = build_order_summary(db, customer_phone, merchant_id)
             confirm_msg = (
                 f"{assistant_reply}\n\n"
                 f"Delivery: {delivery_address}\n\n"
-                f"Receipt: {receipt_url}"
+                f"Receipt: {receipt_url or 'Generating...'}"
             )
             run_sync(send_twilio_whatsapp_message(
                 to_number=customer_phone,
@@ -852,7 +930,7 @@ def process_order_or_negotiation(
                 f"✅ Order confirmed!\n\n"
                 f"{summary}\n"
                 f"Delivery: {delivery_address}\n\n"
-                f"Receipt: {receipt_url}\n\n"
+                f"Receipt: {receipt_url or 'https://bizzy.app/receipts/sample.pdf'}\n\n"
                 f"Thank you for shopping with us! 🎉"
             )
             run_sync(send_twilio_whatsapp_message(
@@ -860,14 +938,12 @@ def process_order_or_negotiation(
                 body_text=confirm_msg
             ))
 
-        # Send alert to merchant
         send_merchant_alert(db, customer_phone, merchant_id, summary)
-        
-        db.commit()  # Commit stock deductions + order updates
+        db.commit()
         return
 
     # ==========================================
-    # 9. CREATE SINGLE UNIFIED ORDER (fallback for ORDER_PLACEMENT)
+    # FALLBACK: CREATE UNIFIED ORDER (ORDER_PLACEMENT direct)
     # ==========================================
     if order_success and matched_products:
         try:
@@ -887,7 +963,6 @@ def process_order_or_negotiation(
                 for mp in matched_products
             ]
 
-            # Calculate unique order reference
             timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
             unique_ref = f"ORD-{timestamp_str}-{customer_phone[-4:]}"
             message_hash = calculate_product_hash(message_text, customer_phone)
@@ -906,7 +981,6 @@ def process_order_or_negotiation(
             db.commit()
             logger.info(f"✅ Unified Order {unique_ref} committed for {customer_phone}")
 
-            # Use Gemini's assistant_reply for order confirmation
             if assistant_reply:
                 run_sync(send_twilio_whatsapp_message(
                     to_number=customer_phone,
@@ -941,7 +1015,9 @@ def process_order_or_negotiation(
             ))
 
 
-
+# ============================================
+# ORDER HELPERS
+# ============================================
 
 def create_pending_order(db, customer_phone, merchant_id, items, total):
     """Create order with pending status."""
@@ -989,8 +1065,16 @@ def update_order_with_address(db, customer_phone, merchant_id, address):
 
 def generate_receipt(db, customer_phone, merchant_id):
     """Generate PDF receipt and return URL."""
-    # TODO: Implement PDF generation
-    return "https://bizzy.app/receipts/sample.pdf"
+    # Delegates to app.core.receipt.generate_receipt_pdf
+    order = db.query(Order).filter(
+        Order.customer_number == customer_phone,
+        Order.merchant_id == merchant_id
+    ).order_by(Order.created_at.desc()).first()
+
+    if not order:
+        return "https://bizzy.app/receipts/sample.pdf"
+
+    return generate_receipt_pdf(db, order.id)
 
 
 def send_merchant_alert(db, customer_phone, merchant_id, summary):

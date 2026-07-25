@@ -4,6 +4,9 @@ from fastapi.responses import JSONResponse
 from app.api.v1.webhooks import router as webhook_router
 from app.api.v1.endpoints import router as api_router
 from app.api.v1.analytics import router as analytics_router
+from app.core.scheduler import start_scheduler
+from app.api.v1.merchants import router as merchants_router
+
 
 # 1. Initialize the FastAPI core instance
 app = FastAPI(
@@ -44,7 +47,12 @@ app.add_middleware(
 def read_root():
     return {"status": "healthy", "service": "Bizzy Central Engine"}
 
+@app.on_event("startup")
+async def startup_event():
+    start_scheduler()
+
 # 4. Mount all routers
 app.include_router(webhook_router, prefix="/api/v1", tags=["Webhooks"])
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(merchants_router, prefix="/api/v1/merchants", tags=["merchants"])
