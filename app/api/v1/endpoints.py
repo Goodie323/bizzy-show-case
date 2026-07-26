@@ -52,11 +52,29 @@ async def verify_otp(payload: OTPVerifyPayload):
 # 2. MERCHANT PROFILE ENDPOINTS
 # ==========================================
 
-@router.get("/merchant", response_model=MerchantProfileResponse)
+@router.get("/merchant")
 def get_merchant_profile(
     merchant: Merchant = Depends(get_current_merchant)
 ):
-    return merchant
+    """
+    Return current merchant profile including Paystack settlement status.
+    """
+    return {
+        "id": merchant.id,
+        "bizzy_number": merchant.bizzy_number,
+        "owner_personal_number": merchant.owner_personal_number,
+        "business_name": merchant.business_name,
+        "preferred_language": merchant.preferred_language,
+        "payment_details": merchant.payment_details,
+        "is_active": merchant.is_active,
+        
+        # PAYSTACK SETTLEMENT FIELDS
+        "paystack_subaccount_code": merchant.paystack_subaccount_code,
+        "settlement_bank_code": merchant.settlement_bank_code,
+        "settlement_account_number": merchant.settlement_account_number,
+        "platform_fee_percent": float(merchant.platform_fee_percent) if merchant.platform_fee_percent else 0.0,
+        "transfer_recipient_code": merchant.transfer_recipient_code,
+    }
 
 @router.put("/merchant", response_model=MerchantProfileResponse)
 def update_merchant_profile(
