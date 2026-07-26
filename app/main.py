@@ -6,16 +6,15 @@ from app.api.v1.endpoints import router as api_router
 from app.api.v1.analytics import router as analytics_router
 from app.core.scheduler import start_scheduler
 from app.api.v1.merchants import router as merchants_router
+from app.api.v1.paystack import router as paystack_router  # ← ADD THIS
 
 
-# 1. Initialize the FastAPI core instance
 app = FastAPI(
     title="Bizzy AI Engine",
     description="Multi-tenant AI-powered WhatsApp business assistant for Nigerian SMEs",
     version="1.0.0"
 )
 
-# 2. Handle OPTIONS preflight requests BEFORE CORS middleware
 @app.middleware("http")
 async def options_handler(request: Request, call_next):
     if request.method == "OPTIONS":
@@ -31,7 +30,6 @@ async def options_handler(request: Request, call_next):
         )
     return await call_next(request)
 
-# 3. Enable CORS for your frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -51,8 +49,9 @@ def read_root():
 async def startup_event():
     start_scheduler()
 
-# 4. Mount all routers
+# Mount all routers
 app.include_router(webhook_router, prefix="/api/v1", tags=["Webhooks"])
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(merchants_router, prefix="/api/v1/merchants", tags=["merchants"])
+app.include_router(paystack_router, prefix="/api/v1/paystack", tags=["paystack"])  # ← ADD THIS
