@@ -163,3 +163,31 @@ export const getBargains = () => fetcher<Bargain[]>("/bargains");
 export const getMerchant = () => fetcher<Merchant>("/merchant");
 export const updateMerchant = (data: Partial<Merchant>) =>
   fetcher<Merchant>("/merchant", { method: "PUT", body: JSON.stringify(data) });
+
+// ============================================================================
+// MERCHANT ONBOARDING (Paystack)
+// ============================================================================
+
+export interface MerchantOnboardRequest {
+  business_name: string;
+  bizzy_number: string;
+  owner_personal_number: string;
+  preferred_language?: string;
+  payment_details: string;
+  settlement_bank_name: string;
+  settlement_account_number: string;
+  agree_to_platform_fee: boolean;
+}
+
+export interface MerchantOnboardResponse {
+  id: number;
+  business_name: string;
+  bizzy_number: string;
+  paystack_subaccount_code?: string;
+  transfer_recipient_code?: string;
+  status: string;
+  message: string;
+}
+
+export const onboardMerchant = (data: MerchantOnboardRequest) =>
+  fetcher<MerchantOnboardResponse>("/merchants/onboard", { method: "POST", body: JSON.stringify(data) });

@@ -5,14 +5,14 @@ import { Shell } from "@/components/layout/shell"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { getAnalyticsOverview } from "@/lib/api"
+import { getAnalyticsOverview, getMerchant } from "@/lib/api"
 import { formatNaira } from "@/lib/utils"
 import { OverviewChart } from "@/components/charts/overview-chart"
 import { RecentOrders } from "@/components/recent-orders"
 import { TopProductsWidget } from "@/components/dashboard/TopProductsWidget"
 import { RecentBargainsWidget } from "@/components/dashboard/RecentBargainsWidget"
 import { SalesTrendWidget } from "@/components/dashboard/SalesTrendWidget"
-import { TrendingUp, Package, Clock, AlertTriangle, ArrowUpRight, Zap, ShoppingBag, Tag, BarChart3 } from "lucide-react"
+import { TrendingUp, Package, Clock, AlertTriangle, ArrowUpRight, Zap, ShoppingBag, Tag, BarChart3, Landmark, BadgeCheck, Wallet } from "lucide-react"
 
 function AnimatedNumber({ value, prefix = "", suffix = "" }: { value: number; prefix?: string; suffix?: string }) {
   const [display, setDisplay] = useState(0)
@@ -59,16 +59,22 @@ function AnimatedNumber({ value, prefix = "", suffix = "" }: { value: number; pr
 
 export default function DashboardPage() {
   const [overview, setOverview] = useState<any>(null)
+  const [merchant, setMerchant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getAnalyticsOverview()
-      .then((data) => {
-        setOverview(data)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+    Promise.all([
+      getAnalyticsOverview().catch(() => null),
+      getMerchant().catch(() => null),
+    ]).then(([overviewData, merchantData]) => {
+      setOverview(overviewData)
+      setMerchant(merchantData)
+      setLoading(false)
+    })
   }, [])
+
+  const hasPaystack = !!merchant?.paystack_subaccount_code
+  const settlementRate = hasPaystack ? 97 : 0 // 97% after 3% fee
 
   const stats = [
     {
@@ -126,6 +132,32 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">Overview of your business performance</p>
         </div>
 
+        {/* Paystack Status Banner */}
+        {!loading && (
+          <div className={`rounded-xl border p-4 shadow-sm animate-fade-in ${hasPaystack ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50' : 'border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`rounded-full p-2 ${hasPaystack ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                {hasPaystack ? <BadgeCheck className="h-5 w-5 text-emerald-600" /> : <Landmark className="h-5 w-5 text-amber-600" />}
+              </div>
+              <div className="flex-1">
+                <h3 className={`font-semibold text-sm ${hasPaystack ? 'text-emerald-800' : 'text-amber-800'}`}>
+                  {hasPaystack ? "Instant Settlement Active" : "Instant Settlement Not Connected"}
+                </h3>
+                <p className={`text-xs mt-0.5 ${hasPaystack ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {hasPaystack 
+                    ? `You receive ${settlementRate}% of every sale instantly to your bank.` 
+                    : "Complete onboarding to enable automatic payouts on every sale."}
+                </p>
+              </div>
+              {!hasPaystack && (
+                <a href="/onboard" className="text-xs font-medium text-amber-700 underline hover:text-amber-900">
+                  Connect Bank →
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Stats Cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat, i) => {
@@ -164,6 +196,48 @@ export default function DashboardPage() {
             )
           })}
         </div>
+
+        {/* Settlement Stats (only if Paystack connected) */}
+        {hasPaystack && !loading && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Card className="border-emerald-200 bg-emerald-50/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm text-emerald-800">
+                  <Wallet className="h-4 w-4" />
+                  Instant Settlements
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-emerald-700">₦{((overview?.total_revenue || 0) * 0.97).toLocaleString("en-NG")}</div>
+                <p className="text-xs text-emerald-600 mt-1">Received instantly (after 3% fee)</p>
+              </CardContent>
+            </Card>
+            <Card className="border-blue-200 bg-blue-50/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm text-blue-800">
+                  <Landmark className="h-4 w-4" />
+                  Settlement Bank
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-lg font-bold text-blue-700">{merchant?.settlement_bank_code || "—"}</div>
+                <p className="text-xs text-blue-600 mt-1">****{merchant?.settlement_account_number?.slice(-4) || "—"}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-purple-200 bg-purple-50/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm text-purple-800">
+                  <BadgeCheck className="h-4 w-4" />
+                  Platform Fee
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-purple-700">3%</div>
+                <p className="text-xs text-purple-600 mt-1">Per transaction</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Low Stock Alerts */}
         {!loading && overview?.low_stock_alerts?.length > 0 && (
