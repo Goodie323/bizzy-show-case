@@ -61,7 +61,9 @@ export default function OnboardPage() {
       })
       if (res.status === "active" || res.status === "partial") {
         setStep("success")
-        setTimeout(() => router.push("/dashboard"), 2000)
+        setTimeout(() => {
+            window.location.href ="/dashboard"
+        }, 2000)
       } else {
         throw new Error(res.message)
       }

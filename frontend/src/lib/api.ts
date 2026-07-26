@@ -71,6 +71,10 @@ export interface Bargain {
   created_at?: string;
 }
 
+// ============================================================================
+// MERCHANT — Updated with Paystack fields (CRITICAL for dashboard)
+// ============================================================================
+
 export interface Merchant {
   id: number;
   business_name: string;
@@ -80,6 +84,13 @@ export interface Merchant {
   is_active: boolean;
   preferred_language?: string;
   created_at?: string;
+  
+  // PAYSTACK FIELDS — These must be here or dashboard can't read them
+  paystack_subaccount_code?: string;
+  settlement_bank_code?: string;
+  settlement_account_number?: string;
+  platform_fee_percent?: number;
+  transfer_recipient_code?: string;
 }
 
 export interface AnalyticsOverview {
@@ -100,6 +111,31 @@ export interface RevenueData {
   period: string;
   revenue: number;
   order_count: number;
+}
+
+// ============================================================================
+// MERCHANT ONBOARDING (Paystack)
+// ============================================================================
+
+export interface MerchantOnboardRequest {
+  business_name: string;
+  bizzy_number: string;
+  owner_personal_number: string;
+  preferred_language?: string;
+  payment_details: string;
+  settlement_bank_name: string;
+  settlement_account_number: string;
+  agree_to_platform_fee: boolean;
+}
+
+export interface MerchantOnboardResponse {
+  id: number;
+  business_name: string;
+  bizzy_number: string;
+  paystack_subaccount_code?: string;
+  transfer_recipient_code?: string;
+  status: string;
+  message: string;
 }
 
 // ============================================================================
@@ -164,30 +200,6 @@ export const getMerchant = () => fetcher<Merchant>("/merchant");
 export const updateMerchant = (data: Partial<Merchant>) =>
   fetcher<Merchant>("/merchant", { method: "PUT", body: JSON.stringify(data) });
 
-// ============================================================================
-// MERCHANT ONBOARDING (Paystack)
-// ============================================================================
-
-export interface MerchantOnboardRequest {
-  business_name: string;
-  bizzy_number: string;
-  owner_personal_number: string;
-  preferred_language?: string;
-  payment_details: string;
-  settlement_bank_name: string;
-  settlement_account_number: string;
-  agree_to_platform_fee: boolean;
-}
-
-export interface MerchantOnboardResponse {
-  id: number;
-  business_name: string;
-  bizzy_number: string;
-  paystack_subaccount_code?: string;
-  transfer_recipient_code?: string;
-  status: string;
-  message: string;
-}
-
+// Merchant Onboarding (Paystack)
 export const onboardMerchant = (data: MerchantOnboardRequest) =>
   fetcher<MerchantOnboardResponse>("/merchants/onboard", { method: "POST", body: JSON.stringify(data) });
