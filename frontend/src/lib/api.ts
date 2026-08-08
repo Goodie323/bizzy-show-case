@@ -1,7 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://bizzy-engine.onrender.com/api/v1";
 
 // ============================================================================
-// SHARED TYPES — Used across all pages
+// TYPES
 // ============================================================================
 
 export interface OTPVerifyResponse {
@@ -71,10 +71,6 @@ export interface Bargain {
   created_at?: string;
 }
 
-// ============================================================================
-// MERCHANT — Updated with Paystack fields (CRITICAL for dashboard)
-// ============================================================================
-
 export interface Merchant {
   id: number;
   business_name: string;
@@ -84,8 +80,6 @@ export interface Merchant {
   is_active: boolean;
   preferred_language?: string;
   created_at?: string;
-  
-  // PAYSTACK FIELDS — These must be here or dashboard can't read them
   paystack_subaccount_code?: string;
   settlement_bank_code?: string;
   settlement_account_number?: string;
@@ -113,10 +107,6 @@ export interface RevenueData {
   order_count: number;
 }
 
-// ============================================================================
-// MERCHANT ONBOARDING (Paystack)
-// ============================================================================
-
 export interface MerchantOnboardRequest {
   business_name: string;
   bizzy_number: string;
@@ -136,7 +126,26 @@ export interface MerchantOnboardResponse {
   transfer_recipient_code?: string;
   status: string;
   message: string;
-  access_token?: string;  // NEW: auto-login token
+  access_token?: string;
+}
+
+export interface WaitlistRequest {
+  full_name: string;
+  business_name: string;
+  email: string;
+  phone: string;
+  category: string;
+}
+
+export interface WaitlistResponse {
+  id: number;
+  full_name: string;
+  business_name: string;
+  email: string;
+  phone: string;
+  category: string;
+  created_at: string;
+  message: string;
 }
 
 // ============================================================================
@@ -197,14 +206,21 @@ export const updateOrderStatus = (id: number, data: { order_status: string }) =>
 export const getBargains = () => fetcher<Bargain[]>("/bargains");
 
 // Merchant
-export const onboardMerchant = (data: MerchantOnboardRequest) =>
-  fetcher<MerchantOnboardResponse>("/merchants/onboard", { method: "POST", body: JSON.stringify(data) });
-
 export const getMerchant = () => fetcher<Merchant>("/merchant");
 export const updateMerchant = (data: Partial<Merchant>) =>
   fetcher<Merchant>("/merchant", { method: "PUT", body: JSON.stringify(data) });
 
-
-// Merchant Onboarding (Paystack)
+// Merchant Onboarding
 export const onboardMerchant = (data: MerchantOnboardRequest) =>
   fetcher<MerchantOnboardResponse>("/merchants/onboard", { method: "POST", body: JSON.stringify(data) });
+
+// Merchant Bank Connection
+export const connectMerchantBank = (data: {
+  settlement_bank_name: string;
+  settlement_account_number: string;
+}) =>
+  fetcher<Merchant>("/merchant/connect-bank", { method: "POST", body: JSON.stringify(data) });
+
+// Waitlist
+export const joinWaitlist = (data: WaitlistRequest) =>
+  fetcher<WaitlistResponse>("/waitlist", { method: "POST", body: JSON.stringify(data) });
