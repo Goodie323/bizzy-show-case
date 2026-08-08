@@ -136,6 +136,7 @@ export interface MerchantOnboardResponse {
   transfer_recipient_code?: string;
   status: string;
   message: string;
+  access_token?: string;  // NEW: auto-login token
 }
 
 // ============================================================================
@@ -196,9 +197,13 @@ export const updateOrderStatus = (id: number, data: { order_status: string }) =>
 export const getBargains = () => fetcher<Bargain[]>("/bargains");
 
 // Merchant
+export const onboardMerchant = (data: MerchantOnboardRequest) =>
+  fetcher<MerchantOnboardResponse>("/merchants/onboard", { method: "POST", body: JSON.stringify(data) });
+
 export const getMerchant = () => fetcher<Merchant>("/merchant");
 export const updateMerchant = (data: Partial<Merchant>) =>
   fetcher<Merchant>("/merchant", { method: "PUT", body: JSON.stringify(data) });
+
 
 // Merchant Onboarding (Paystack)
 export const onboardMerchant = (data: MerchantOnboardRequest) =>

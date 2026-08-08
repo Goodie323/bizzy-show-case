@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import logging
+import os
+from datetime import datetime, timedelta
+import jwt
 
 from app.api.deps import get_db
 from app.db.models import Merchant
@@ -12,6 +15,7 @@ from app.core.paystack import create_merchant_subaccount, create_transfer_recipi
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+SECRET_KEY = os.getenv("SECRET_KEY", "bizzy-2026-secret-key-change-me")
 
 # =============================================================================
 # BANK CODE MAPPING (Nigeria)
@@ -53,20 +57,20 @@ class MerchantOnboardRequest(BaseModel):
     owner_personal_number: str = Field(..., description="Owner's personal WhatsApp for alerts")
     preferred_language: str = Field(default="English")
     payment_details: str = Field(..., description="Human-readable: GTBank 0123456789 John Doe")
-    
+
     # Bank details for Paystack subaccount
     settlement_bank_name: str = Field(..., description="Bank name, e.g., 'GTBank' or 'Access Bank'")
     settlement_account_number: str = Field(..., min_length=10, max_length=10)
-    
+
     # Platform fee agreement
     agree_to_platform_fee: bool = Field(..., description="Merchant agrees to 3% platform fee")
-    
+
     @validator('settlement_account_number')
     def validate_account_number(cls, v):
         if not v.isdigit() or len(v) != 10:
             raise ValueError("Account number must be exactly 10 digits")
         return v
-    
+
     @validator('agree_to_platform_fee')
     def validate_fee_agreement(cls, v):
         if not v:
@@ -82,6 +86,7 @@ class MerchantOnboardResponse(BaseModel):
     transfer_recipient_code: Optional[str]
     status: str
     message: str
+    access_token: Optional[str] = None
 
 
 # =============================================================================
@@ -93,7 +98,7 @@ def resolve_bank_code(bank_name: str) -> str:
     Map common bank names to Paystack bank codes.
     """
     bank_name_lower = bank_name.lower().strip()
-    
+
     # Direct mappings
     aliases = {
         "gtbank": "057",
@@ -123,17 +128,30 @@ def resolve_bank_code(bank_name: str) -> str:
         "palmpay": "999992",
         "kuda": "999993",
     }
-    
+
     code = aliases.get(bank_name_lower)
     if code:
         return code
-    
+
     # Try partial match
     for alias, bank_code in aliases.items():
         if bank_name_lower in alias or alias in bank_name_lower:
             return bank_code
-    
+
     raise ValueError(f"Unknown bank: {bank_name}. Supported: {list(NIGERIAN_BANKS.values())}")
+
+
+def generate_merchant_token(merchant: Merchant) -> str:
+    """Generate a 7-day JWT for immediate dashboard access."""
+    return jwt.encode(
+        {
+            "merchant_id": merchant.id,
+            "bizzy_number": merchant.bizzy_number,
+            "exp": datetime.utcnow() + timedelta(days=7)
+        },
+        SECRET_KEY,
+        algorithm="HS256"
+    )
 
 
 # =============================================================================
@@ -149,21 +167,25 @@ async def onboard_merchant(
     Onboard a new merchant with Paystack subaccount creation.
     This enables instant settlement on every sale.
     """
-    
-    # Check for duplicate bizzy_number
-    existing = db.query(Merchant).filter(Merchant.bizzy_number == payload.bizzy_number).first()
+
+    # Check for duplicate phone numbers (bizzy or owner personal)
+    existing = db.query(Merchant).filter(
+        (Merchant.bizzy_number == payload.bizzy_number) |
+        (Merchant.owner_personal_number == payload.owner_personal_number)
+    ).first()
+
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Merchant with WhatsApp number {payload.bizzy_number} already exists"
+            detail="A merchant with this phone number already exists. Please log in instead."
         )
-    
+
     # Resolve bank code
     try:
         bank_code = resolve_bank_code(payload.settlement_bank_name)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    
+
     # Create merchant record first (without Paystack codes)
     merchant = Merchant(
         business_name=payload.business_name,
@@ -177,11 +199,10 @@ async def onboard_merchant(
         is_active=True
     )
     db.add(merchant)
-    db.commit()
-    db.refresh(merchant)
-    
+    db.flush()  # Get merchant.id without full commit
+
     logger.info(f"Merchant {merchant.id} created: {payload.business_name}")
-    
+
     # Create Paystack subaccount
     try:
         subaccount_data = create_merchant_subaccount(
@@ -191,13 +212,13 @@ async def onboard_merchant(
             email=f"merchant{merchant.id}@bizzy.app",
             percentage_charge=3.0  # Merchant bears this as platform fee
         )
-        
+
         merchant.paystack_subaccount_code = subaccount_data["subaccount_code"]
         logger.info(f"Paystack subaccount created: {subaccount_data['subaccount_code']}")
-        
+
     except Exception as e:
         logger.error(f"Paystack subaccount creation failed: {str(e)}")
-        # Merchant exists but Paystack failed — can retry later
+        db.commit()  # Persist merchant so they can retry later
         return MerchantOnboardResponse(
             id=merchant.id,
             business_name=merchant.business_name,
@@ -205,9 +226,10 @@ async def onboard_merchant(
             paystack_subaccount_code=None,
             transfer_recipient_code=None,
             status="created_paystack_failed",
-            message="Merchant created but Paystack setup failed. Please retry from dashboard."
+            message="Merchant created but Paystack setup failed. Please retry from dashboard.",
+            access_token=generate_merchant_token(merchant)
         )
-    
+
     # Create transfer recipient for instant settlement
     try:
         recipient_code = create_transfer_recipient(
@@ -215,11 +237,10 @@ async def onboard_merchant(
             account_number=payload.settlement_account_number,
             bank_code=bank_code
         )
-        
+
         merchant.transfer_recipient_code = recipient_code
-        db.commit()
         logger.info(f"Transfer recipient created: {recipient_code}")
-        
+
     except Exception as e:
         logger.error(f"Transfer recipient creation failed: {str(e)}")
         db.commit()  # Save subaccount even if recipient fails
@@ -230,12 +251,14 @@ async def onboard_merchant(
             paystack_subaccount_code=merchant.paystack_subaccount_code,
             transfer_recipient_code=None,
             status="partial",
-            message="Subaccount created but instant transfer setup failed. Please retry from dashboard."
+            message="Subaccount created but instant transfer setup failed. Please retry from dashboard.",
+            access_token=generate_merchant_token(merchant)
         )
-    
+
     # Full success
     db.commit()
-    
+    db.refresh(merchant)
+
     return MerchantOnboardResponse(
         id=merchant.id,
         business_name=merchant.business_name,
@@ -243,7 +266,8 @@ async def onboard_merchant(
         paystack_subaccount_code=merchant.paystack_subaccount_code,
         transfer_recipient_code=merchant.transfer_recipient_code,
         status="active",
-        message="Merchant onboarded successfully! Instant settlement enabled."
+        message="Merchant onboarded successfully! Instant settlement enabled.",
+        access_token=generate_merchant_token(merchant)
     )
 
 
@@ -258,12 +282,12 @@ async def retry_paystack_setup(
     merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
     if not merchant:
         raise HTTPException(status_code=404, detail="Merchant not found")
-    
+
     if not merchant.settlement_bank_code or not merchant.settlement_account_number:
         raise HTTPException(status_code=400, detail="Merchant missing bank details")
-    
+
     results = {"subaccount": None, "recipient": None}
-    
+
     # Retry subaccount if missing
     if not merchant.paystack_subaccount_code:
         try:
@@ -278,7 +302,7 @@ async def retry_paystack_setup(
             results["subaccount"] = "created"
         except Exception as e:
             results["subaccount"] = f"failed: {str(e)}"
-    
+
     # Retry transfer recipient if missing
     if not merchant.transfer_recipient_code:
         try:
@@ -291,9 +315,9 @@ async def retry_paystack_setup(
             results["recipient"] = "created"
         except Exception as e:
             results["recipient"] = f"failed: {str(e)}"
-    
+
     db.commit()
-    
+
     return {
         "merchant_id": merchant_id,
         "paystack_subaccount_code": merchant.paystack_subaccount_code,

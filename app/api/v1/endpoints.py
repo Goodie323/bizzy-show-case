@@ -30,22 +30,40 @@ async def send_otp(payload: OTPSendPayload):
     return {"success": True, "message": f"OTP sent to {payload.whatsapp_number}", "expires_in": 300}
 
 @router.post("/auth/otp/verify", status_code=status.HTTP_200_OK)
-async def verify_otp(payload: OTPVerifyPayload):
-    if payload.otp == "482910":
-        token = jwt.encode(
-            {"merchant_id": 1, "exp": datetime.utcnow() + timedelta(days=1)},
-            SECRET_KEY,
-            algorithm="HS256"
+async def verify_otp(payload: OTPVerifyPayload, db: Session = Depends(get_db)):
+    if payload.otp != "482910":
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+    
+    # Look up by EITHER bizzy_number or owner_personal_number
+    merchant = db.query(Merchant).filter(
+        (Merchant.bizzy_number == payload.whatsapp_number) |
+        (Merchant.owner_personal_number == payload.whatsapp_number)
+    ).first()
+    
+    if not merchant:
+        raise HTTPException(
+            status_code=404,
+            detail="Merchant not found. Please create an account at /onboard"
         )
-        return {
-            "success": True,
-            "access_token": token,
-            "token_type": "bearer",
-            "merchant_id": 1,
-            "business_name": "Test Store by Goodness",
-            "expires_in": 86400
-        }
-    raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+    
+    token = jwt.encode(
+        {
+            "merchant_id": merchant.id,
+            "bizzy_number": merchant.bizzy_number,
+            "exp": datetime.utcnow() + timedelta(days=7)
+        },
+        SECRET_KEY,
+        algorithm="HS256"
+    )
+    
+    return {
+        "success": True,
+        "access_token": token,
+        "token_type": "bearer",
+        "merchant_id": merchant.id,
+        "business_name": merchant.business_name,
+        "expires_in": 604800  # 7 days
+    }
 
 
 # ==========================================
