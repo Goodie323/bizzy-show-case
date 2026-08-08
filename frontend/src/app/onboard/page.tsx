@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,7 +28,6 @@ function FloatingShape({ delay, size, x, y, color }: { delay: number; size: numb
 
 export default function OnboardPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [step, setStep] = useState<"form" | "submitting" | "success">("form")
   const [error, setError] = useState("")
   const [mounted, setMounted] = useState(false)
@@ -53,7 +52,6 @@ export default function OnboardPage() {
     try {
       const res = await onboardMerchant({
         business_name: formData.business_name,
-        // Since Meta verification is pending, use their current WhatsApp for both
         bizzy_number: formData.phone,
         owner_personal_number: formData.phone,
         preferred_language: "English",
@@ -64,13 +62,11 @@ export default function OnboardPage() {
       })
 
       if (res.status === "active" || res.status === "partial" || res.access_token) {
-        // Auto-login: store token and merchant data
         if (res.access_token) {
           localStorage.setItem("bizzy_token", res.access_token)
           localStorage.setItem("bizzy_merchant_id", String(res.id))
         }
         setStep("success")
-        // Hard reload to dashboard so all data fetches fresh
         setTimeout(() => {
           window.location.href = "/dashboard"
         }, 1500)
@@ -117,7 +113,6 @@ export default function OnboardPage() {
           </CardHeader>
 
           <CardContent className="pb-6">
-            {/* Meta notice */}
             {step === "form" && (
               <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 flex items-start gap-2">
                 <Info className="h-4 w-4 mt-0.5 shrink-0" />
