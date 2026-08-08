@@ -7,15 +7,16 @@ import logging
 import os
 from datetime import datetime, timedelta
 import jwt
+import requests
 
 from app.api.deps import get_db
 from app.db.models import Merchant
-from app.core.paystack import create_merchant_subaccount, create_transfer_recipient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SECRET_KEY = os.getenv("SECRET_KEY", "bizzy-2026-secret-key-change-me")
+PAYSTACK_SECRET = os.getenv("PAYSTACK_SECRET_KEY", "")
 
 # =============================================================================
 # BANK CODE MAPPING (Nigeria)
@@ -45,6 +46,89 @@ NIGERIAN_BANKS = {
     "999992": "Palmpay",
     "999993": "Kuda",
 }
+
+
+# =============================================================================
+# PAYSTACK HELPERS (with rich error surfacing)
+# =============================================================================
+
+def create_merchant_subaccount(
+    business_name: str,
+    settlement_bank_code: str,
+    account_number: str,
+    email: str,
+    percentage_charge: float
+):
+    """Create Paystack subaccount with full error surfacing."""
+    url = "https://api.paystack.co/subaccount"
+    headers = {
+        "Authorization": f"Bearer {PAYSTACK_SECRET}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "business_name": business_name,
+        "settlement_bank": settlement_bank_code,
+        "account_number": account_number,
+        "percentage_charge": float(percentage_charge),
+        "primary_contact_email": email,
+        "description": f"Bizzy merchant - {business_name}"
+    }
+
+    logger.info(f"Creating Paystack subaccount: {business_name} | Bank: {settlement_bank_code} | Acct: {account_number}")
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("status"):
+            raise Exception(data.get("message", "Paystack returned false status"))
+        return data["data"]
+    except requests.exceptions.HTTPError as e:
+        try:
+            err_body = e.response.json()
+            err_msg = err_body.get("message", str(e))
+            logger.error(f"Paystack 400: {err_msg} | Payload: {payload}")
+        except Exception:
+            err_msg = f"Paystack error: {e.response.text[:500]}"
+            logger.error(err_msg)
+        raise Exception(err_msg)
+    except Exception as e:
+        logger.error(f"Paystack subaccount unexpected error: {str(e)}")
+        raise
+
+
+def create_transfer_recipient(name: str, account_number: str, bank_code: str):
+    """Create Paystack transfer recipient with full error surfacing."""
+    url = "https://api.paystack.co/transferrecipient"
+    headers = {
+        "Authorization": f"Bearer {PAYSTACK_SECRET}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "type": "nuban",
+        "name": name,
+        "account_number": account_number,
+        "bank_code": bank_code,
+        "currency": "NGN"
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("status"):
+            raise Exception(data.get("message", "Paystack returned false status"))
+        return data["data"]["recipient_code"]
+    except requests.exceptions.HTTPError as e:
+        try:
+            err_msg = e.response.json().get("message", str(e))
+        except Exception:
+            err_msg = e.response.text[:500]
+        logger.error(f"Paystack transfer recipient error: {err_msg}")
+        raise Exception(err_msg)
+    except Exception as e:
+        logger.error(f"Transfer recipient unexpected error: {str(e)}")
+        raise
 
 
 # =============================================================================
@@ -214,10 +298,10 @@ async def onboard_merchant(
         )
 
         merchant.paystack_subaccount_code = subaccount_data["subaccount_code"]
-        logger.info(f"Paystack subaccount created: {subaccount_data['subaccount_code']}")
+        logger.info(f"✅ Paystack subaccount created: {subaccount_data['subaccount_code']}")
 
     except Exception as e:
-        logger.error(f"Paystack subaccount creation failed: {str(e)}")
+        logger.error(f"❌ Paystack subaccount creation failed: {str(e)}")
         db.commit()  # Persist merchant so they can retry later
         return MerchantOnboardResponse(
             id=merchant.id,
@@ -226,7 +310,7 @@ async def onboard_merchant(
             paystack_subaccount_code=None,
             transfer_recipient_code=None,
             status="created_paystack_failed",
-            message="Merchant created but Paystack setup failed. Please retry from dashboard.",
+            message=f"Merchant created but Paystack setup failed: {str(e)}. Please retry from dashboard.",
             access_token=generate_merchant_token(merchant)
         )
 
@@ -239,10 +323,10 @@ async def onboard_merchant(
         )
 
         merchant.transfer_recipient_code = recipient_code
-        logger.info(f"Transfer recipient created: {recipient_code}")
+        logger.info(f"✅ Transfer recipient created: {recipient_code}")
 
     except Exception as e:
-        logger.error(f"Transfer recipient creation failed: {str(e)}")
+        logger.error(f"❌ Transfer recipient creation failed: {str(e)}")
         db.commit()  # Save subaccount even if recipient fails
         return MerchantOnboardResponse(
             id=merchant.id,
@@ -251,7 +335,7 @@ async def onboard_merchant(
             paystack_subaccount_code=merchant.paystack_subaccount_code,
             transfer_recipient_code=None,
             status="partial",
-            message="Subaccount created but instant transfer setup failed. Please retry from dashboard.",
+            message=f"Subaccount created but instant transfer setup failed: {str(e)}. Please retry from dashboard.",
             access_token=generate_merchant_token(merchant)
         )
 
