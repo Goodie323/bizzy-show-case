@@ -903,6 +903,15 @@ def process_order_or_negotiation(
     elif intent_action == "ORDER_CONFIRMATION":
         delivery_address = ai_response.get("delivery_address", message_text)
 
+        # GUARD: If AI misclassified a cart inquiry, just reply and exit
+        if not matched_products:
+            if assistant_reply:
+                run_sync(send_twilio_whatsapp_message(
+                    to_number=customer_phone,
+                    body_text=assistant_reply
+                ))
+            return
+
         # DEDUCT STOCK ONLY AT CONFIRMATION (deal is locked)
         for mp in matched_products:
             mp["product"].stock_quantity -= mp["quantity"]
@@ -910,8 +919,8 @@ def process_order_or_negotiation(
 
         update_order_with_address(db, customer_phone, merchant_id, delivery_address)
 
-        # Generate receipt
-        receipt_url = generate_receipt_pdf(db, customer_phone, merchant_id)
+        # Generate receipt using LOCAL wrapper (looks up order by phone, passes integer ID)
+        receipt_url = generate_receipt(db, customer_phone, merchant_id)
 
         if assistant_reply:
             summary = build_order_summary(db, customer_phone, merchant_id)
