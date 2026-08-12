@@ -32,6 +32,8 @@ from app.core.receipt import generate_receipt_pdf
 
 logger = logging.getLogger(__name__)
 
+logger.critical("🧪 DEPLOY TEST: webhooks.py v2.1 LOADED SUCCESSFULLY")  # ← ADD THIS
+
 router = APIRouter()
 
 # Meta webhook verification token (stored securely in .env)
