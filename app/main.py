@@ -1,14 +1,14 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from pathlib import Path
 from app.api.v1.webhooks import router as webhook_router
 from app.api.v1.endpoints import router as api_router
 from app.api.v1.analytics import router as analytics_router
 from app.core.scheduler import start_scheduler
 from app.api.v1.merchants import router as merchants_router
 from app.api.v1.paystack import router as paystack_router
-from app.api.v1.africastalking_webhook import router as at_webhook_router  # ← ADD THIS
-
+from app.api.v1.africastalking_webhook import router as at_webhook_router
 
 app = FastAPI(
     title="Bizzy AI Engine",
@@ -16,18 +16,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# ============================================================================
-# CORS — Single source of truth. Remove custom options_handler.
-# ============================================================================
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "https://localhost:3000",
         "https://bizzy-livid.vercel.app",
-        "https://bizzydigitalhub.com",          # ← NEW
-        "https://www.bizzydigitalhub.com",      # ← NEW
+        "https://bizzydigitalhub.com",
+        "https://www.bizzydigitalhub.com",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -40,6 +36,24 @@ app.add_middleware(
 def read_root():
     return {"status": "healthy", "service": "Bizzy Central Engine"}
 
+# ═══════════════════════════════════════════════════════════
+# META COMPLIANCE PAGES
+# ═══════════════════════════════════════════════════════════
+
+STATIC_PAGES = Path(__file__).parent / "app" / "static" / "pages"
+
+@app.get("/privacy-policy", response_class=HTMLResponse)
+async def privacy_policy():
+    return HTMLResponse(content=(STATIC_PAGES / "privacy.html").read_text())
+
+@app.get("/terms-of-service", response_class=HTMLResponse)
+async def terms_of_service():
+    return HTMLResponse(content=(STATIC_PAGES / "terms.html").read_text())
+
+@app.get("/data-deletion", response_class=HTMLResponse)
+async def data_deletion():
+    return HTMLResponse(content=(STATIC_PAGES / "deletion.html").read_text())
+
 @app.on_event("startup")
 async def startup_event():
     start_scheduler()
@@ -50,4 +64,4 @@ app.include_router(api_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(merchants_router, prefix="/api/v1/merchants", tags=["merchants"])
 app.include_router(paystack_router, prefix="/api/v1/paystack", tags=["paystack"])
-app.include_router(at_webhook_router, prefix="/api/v1/africastalking", tags=["africastalking"])  # ← ADD THIS
+app.include_router(at_webhook_router, prefix="/api/v1/africastalking", tags=["africastalking"])
