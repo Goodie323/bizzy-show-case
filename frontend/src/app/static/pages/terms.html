@@ -4,38 +4,208 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Terms of Service — Bizzy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 48px auto; padding: 0 24px; line-height: 1.7; color: #1a1a1a; }
-    h1 { font-size: 32px; margin-bottom: 4px; letter-spacing: -0.5px; }
-    .updated { color: #666; font-size: 14px; margin-bottom: 40px; }
-    h2 { font-size: 20px; margin-top: 36px; color: #111; border-bottom: 1px solid #eee; padding-bottom: 8px; }
-    p { margin: 14px 0; }
-    footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #eee; font-size: 13px; color: #666; text-align: center; }
+    :root {
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --brand-primary: #2563eb;
+      --brand-light: #eff6ff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 760px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      padding: 48px 40px;
+    }
+
+    .header {
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 24px;
+      margin-bottom: 32px;
+    }
+
+    .badge {
+      display: inline-block;
+      background-color: var(--brand-light);
+      color: var(--brand-primary);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.8px;
+      margin-bottom: 8px;
+    }
+
+    .updated {
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .intro {
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+    }
+
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin: 32px 0 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    p {
+      color: #334155;
+      font-size: 15px;
+      margin-bottom: 16px;
+    }
+
+    .highlight-card {
+      background: #f8fafc;
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+
+    .highlight-card p {
+      margin: 0;
+      font-size: 14px;
+      color: #334155;
+    }
+
+    a {
+      color: var(--brand-primary);
+      text-decoration: none;
+      font-weight: 500;
+      transition: color 0.15s ease;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    footer {
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-color);
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 16px;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+    }
+
+    .footer-links a:hover {
+      color: var(--brand-primary);
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 16px; }
+      .container { padding: 24px 20px; }
+      h1 { font-size: 26px; }
+      footer { flex-direction: column; text-align: center; }
+    }
   </style>
 </head>
 <body>
-  <h1>Terms of Service</h1>
-  <p class="updated">Last updated: September 2026</p>
 
-  <p>By using Bizzy via WhatsApp, you agree to these Terms of Service.</p>
+  <main class="container">
+    <header class="header">
+      <span class="badge">Legal</span>
+      <h1>Terms of Service</h1>
+      <p class="updated">Last updated: September 2026</p>
+    </header>
 
-  <h2>1. Service Description</h2>
-  <p>Bizzy is a WhatsApp-based commerce platform that allows merchants to list products, receive orders, and accept payments from customers.</p>
+    <p class="intro">By interacting with or using <strong>Bizzy</strong> via WhatsApp, you agree to be bound by these Terms of Service.</p>
 
-  <h2>2. Merchant Obligations</h2>
-  <p>Merchants must provide accurate business information, fulfill orders promptly, and comply with all applicable laws.</p>
+    <section>
+      <h2>1. Service Description</h2>
+      <p>Bizzy is an automated WhatsApp-based commerce platform that enables merchants to manage product listings, process customer orders, and facilitate payment collection seamlessly.</p>
+    </section>
 
-  <h2>3. Payments</h2>
-  <p>Payments are processed by Paystack. Bizzy facilitates the transaction but is not a bank or money transmitter.</p>
+    <section>
+      <h2>2. Merchant Obligations</h2>
+      <p>Merchants using Bizzy agree to maintain current and accurate business information, fulfill customer orders promptly, and adhere strictly to all applicable local regulations and commerce laws.</p>
+    </section>
 
-  <h2>4. Limitation of Liability</h2>
-  <p>Bizzy is provided "as is." We are not liable for disputes between merchants and customers.</p>
+    <section>
+      <h2>3. Payments</h2>
+      <p>Payment transactions are processed through <strong>Paystack</strong>. Bizzy facilitates message workflows and payment triggers, but acts strictly as an integrated interface and is not a financial institution, bank, or money transmitter.</p>
+    </section>
 
-  <h2>5. Termination</h2>
-  <p>We may suspend or terminate access for violations of these terms.</p>
+    <section>
+      <h2>4. Limitation of Liability</h2>
+      <div class="highlight-card">
+        <p>Bizzy is provided on an "as is" and "as available" basis. Bizzy is not responsible or liable for commercial disputes, non-fulfillment, or service interruptions arising between merchants and end consumers.</p>
+      </div>
+    </section>
 
-  <footer>
-    <a href="/privacy-policy">Privacy Policy</a> · <a href="/data-deletion">Data Deletion</a> · &copy; 2026 Bizzy
-  </footer>
+    <section>
+      <h2>5. Termination</h2>
+      <p>We reserve the right to suspend or revoke access to the service at any time for non-compliance, fraudulent activity, or violations of these terms.</p>
+    </section>
+
+    <footer>
+      <div class="footer-links">
+        <a href="/privacy-policy">Privacy Policy</a>
+        <a href="/data-deletion">Data Deletion</a>
+      </div>
+      <div>&copy; 2026 Bizzy Inc. All rights reserved.</div>
+    </footer>
+  </main>
+
 </body>
 </html>
