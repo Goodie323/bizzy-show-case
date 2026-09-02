@@ -40,7 +40,7 @@ def read_root():
 # META COMPLIANCE PAGES
 # ═══════════════════════════════════════════════════════════
 
-STATIC_PAGES = Path(__file__).parent / "app" / "static" / "pages"
+STATIC_PAGES = Path(__file__).parent.parent / "frontend" / "src" / "app" / "static" / "pages"
 
 @app.get("/privacy-policy", response_class=HTMLResponse)
 async def privacy_policy():
