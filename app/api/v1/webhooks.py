@@ -29,10 +29,10 @@ from app.core.paystack import (
     PAYSTACK_FEE_FLAT
 )
 from app.core.receipt import generate_receipt_pdf
-#top
+
 logger = logging.getLogger(__name__)
 
-logger.critical("🧪 DEPLOY TEST: webhooks.py v2.1 LOADED SUCCESSFULLY")  # ← ADD THIS
+logger.critical("🧪 DEPLOY TEST: webhooks.py v2.1 LOADED SUCCESSFULLY")
 
 router = APIRouter()
 
@@ -429,7 +429,7 @@ def dispatch_static_template(customer_phone: str, template_type: str, merchant_i
     else:
         message_content = "Received! One second, make I check our available balance and catalog details."
 
-    run_sync(send_twilio_whatsapp_message(to_number=customer_phone, body_text=message_content))
+    run_sync(send_whatsapp_message(to_number=customer_phone, body_text=message_content))
 
 
 def dispatch_gemini_intelligence_pipeline(
@@ -446,7 +446,7 @@ def dispatch_gemini_intelligence_pipeline(
         # 1. IDEMPOTENCY CHECK
         if is_duplicate_request(db, customer_phone, message_text, merchant_id):
             logger.warning(f"⚠️ Duplicate request detected for {customer_phone}")
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text="We're already processing your request. Please wait a moment."
             ))
@@ -466,7 +466,7 @@ def dispatch_gemini_intelligence_pipeline(
 
         if not catalog_data.get("products"):
             logger.warning(f"No products found for merchant {merchant_id}")
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text="Our catalog is currently being updated. Please check back soon! 🙏"
             ))
@@ -529,7 +529,7 @@ def dispatch_gemini_intelligence_pipeline(
                 )
             else:
                 if assistant_reply:
-                    run_sync(send_twilio_whatsapp_message(
+                    run_sync(send_whatsapp_message(
                         to_number=customer_phone, 
                         body_text=assistant_reply
                     ))
@@ -537,7 +537,7 @@ def dispatch_gemini_intelligence_pipeline(
         except OperationalError as e:
             db.rollback()
             logger.error(f"❌ Database deadlock in pipeline: {str(e)}")
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text="We're experiencing high traffic. Please try again in a moment."
             ))
@@ -549,7 +549,7 @@ def dispatch_gemini_intelligence_pipeline(
         except Exception as e:
             db.rollback()
             logger.error(f"❌ Pipeline Error: {str(e)}")
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text="🤖 Oops! Something went wrong. Please try again or contact support."
             ))
@@ -599,12 +599,12 @@ def process_order_or_negotiation(
             if not matched_prod:
                 logger.warning(f"Product not found: {product_name}")
                 if assistant_reply:
-                    run_sync(send_twilio_whatsapp_message(
+                    run_sync(send_whatsapp_message(
                         to_number=customer_phone,
                         body_text=assistant_reply
                     ))
                 else:
-                    run_sync(send_twilio_whatsapp_message(
+                    run_sync(send_whatsapp_message(
                         to_number=customer_phone,
                         body_text=f"Sorry, we couldn't find '{product_name}'. Please check the name."
                     ))
@@ -615,12 +615,12 @@ def process_order_or_negotiation(
             if matched_prod.stock_quantity < requested_qty:
                 logger.warning(f"Insufficient stock for {matched_prod.name}")
                 if assistant_reply:
-                    run_sync(send_twilio_whatsapp_message(
+                    run_sync(send_whatsapp_message(
                         to_number=customer_phone,
                         body_text=assistant_reply
                     ))
                 else:
-                    run_sync(send_twilio_whatsapp_message(
+                    run_sync(send_whatsapp_message(
                         to_number=customer_phone,
                         body_text=f"⚠️ Only {matched_prod.stock_quantity} units of {matched_prod.name} left. Please reduce quantity."
                     ))
@@ -663,7 +663,7 @@ def process_order_or_negotiation(
 
                     # Send Gemini's localized reply — NOT hardcoded template
                     if assistant_reply:
-                        run_sync(send_twilio_whatsapp_message(
+                        run_sync(send_whatsapp_message(
                             to_number=customer_phone,
                             body_text=assistant_reply
                         ))
@@ -692,7 +692,7 @@ def process_order_or_negotiation(
             db.rollback()
             logger.error(f"Database deadlock detected: {str(e)}")
             order_success = False
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text="We're experiencing high traffic. Please try again in a moment."
             ))
@@ -704,7 +704,7 @@ def process_order_or_negotiation(
     if intent_action == "NEGOTIATION" and order_success and matched_products:
         # Use Gemini's localized reply
         if assistant_reply:
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text=assistant_reply
             ))
@@ -715,7 +715,7 @@ def process_order_or_negotiation(
                 f"Amount: ₦{int(total_amount)}\n\n"
                 f"Send proof of payment when done!"
             )
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text=payment_msg
             ))
@@ -744,7 +744,7 @@ def process_order_or_negotiation(
         if not is_above_floor(Decimal(str(total))):
             # Manual fallback for small amounts
             if assistant_reply:
-                run_sync(send_twilio_whatsapp_message(
+                run_sync(send_whatsapp_message(
                     to_number=customer_phone,
                     body_text=assistant_reply
                 ))
@@ -756,7 +756,7 @@ def process_order_or_negotiation(
                     f"{merchant.payment_details}\n\n"
                     f"Send proof of payment when done!"
                 )
-                run_sync(send_twilio_whatsapp_message(
+                run_sync(send_whatsapp_message(
                     to_number=customer_phone,
                     body_text=manual_msg
                 ))
@@ -840,7 +840,7 @@ def process_order_or_negotiation(
                 f"Reply *PAID* once you complete the transfer."
             )
 
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text=payment_msg
             ))
@@ -851,7 +851,7 @@ def process_order_or_negotiation(
 
             # Fallback to manual payment
             if assistant_reply:
-                run_sync(send_twilio_whatsapp_message(
+                run_sync(send_whatsapp_message(
                     to_number=customer_phone,
                     body_text=assistant_reply
                 ))
@@ -861,7 +861,7 @@ def process_order_or_negotiation(
                     f"Please pay to:\n{merchant.payment_details}\n\n"
                     f"Send proof when done!"
                 )
-                run_sync(send_twilio_whatsapp_message(
+                run_sync(send_whatsapp_message(
                     to_number=customer_phone,
                     body_text=fallback_msg
                 ))
@@ -886,12 +886,12 @@ def process_order_or_negotiation(
     # ==========================================
     elif intent_action == "DELIVERY_REQUEST":
         if assistant_reply:
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text=assistant_reply
             ))
         else:
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text="✅ Payment received! Where should we deliver your order?\n\nPlease send your full address."
             ))
@@ -908,7 +908,7 @@ def process_order_or_negotiation(
         # GUARD: If AI misclassified a cart inquiry, just reply and exit
         if not matched_products:
             if assistant_reply:
-                run_sync(send_twilio_whatsapp_message(
+                run_sync(send_whatsapp_message(
                     to_number=customer_phone,
                     body_text=assistant_reply
                 ))
@@ -931,7 +931,7 @@ def process_order_or_negotiation(
                 f"Delivery: {delivery_address}\n\n"
                 f"Receipt: {receipt_url or 'Generating...'}"
             )
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text=confirm_msg
             ))
@@ -944,7 +944,7 @@ def process_order_or_negotiation(
                 f"Receipt: {receipt_url or 'https://bizzy.app/receipts/sample.pdf'}\n\n"
                 f"Thank you for shopping with us! 🎉"
             )
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text=confirm_msg
             ))
@@ -993,7 +993,7 @@ def process_order_or_negotiation(
             logger.info(f"✅ Unified Order {unique_ref} committed for {customer_phone}")
 
             if assistant_reply:
-                run_sync(send_twilio_whatsapp_message(
+                run_sync(send_whatsapp_message(
                     to_number=customer_phone,
                     body_text=assistant_reply
                 ))
@@ -1003,7 +1003,7 @@ def process_order_or_negotiation(
                     for item in order_items
                 ])
                 summary += f"\n\nTotal: ₦{int(total_amount)}"
-                run_sync(send_twilio_whatsapp_message(
+                run_sync(send_whatsapp_message(
                     to_number=customer_phone,
                     body_text=f"✅ Order confirmed!\n\n{summary}\n\nThank you for shopping with us! 🎉"
                 ))
@@ -1011,7 +1011,7 @@ def process_order_or_negotiation(
         except Exception as e:
             db.rollback()
             logger.error(f"❌ Commit failed: {str(e)}")
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text="We hit a snag saving your order. Please try again."
             ))
@@ -1020,7 +1020,7 @@ def process_order_or_negotiation(
         logger.warning(f"Order processing failed for {customer_phone}")
 
         if assistant_reply and order_success:
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=customer_phone,
                 body_text=assistant_reply
             ))
@@ -1098,7 +1098,7 @@ def send_merchant_alert(db, customer_phone, merchant_id, summary):
             f"{summary}\n\n"
             f"Check dashboard for details."
         )
-        run_sync(send_twilio_whatsapp_message(
+        run_sync(send_whatsapp_message(
             to_number=merchant.owner_personal_number,
             body_text=alert_msg
         ))

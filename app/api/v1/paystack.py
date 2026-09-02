@@ -8,7 +8,7 @@ from app.api.deps import get_db
 from app.core.paystack import verify_webhook_signature, verify_transaction
 from app.core.paystack import initiate_transfer, calculate_settlement
 from app.core.receipt import generate_receipt_pdf
-from app.core.twillo_client import send_twilio_whatsapp_message
+from app.core.meta_client import send_whatsapp_message
 from app.api.v1.webhooks import run_sync
 from app.db.models import Order, Merchant, SalesLedger
 
@@ -109,7 +109,7 @@ async def paystack_webhook(
     )
     
     # Notify customer
-    run_sync(send_twilio_whatsapp_message(
+    run_sync(send_whatsapp_message(
         to_number=order.customer_number,
         body_text=(
             f"✅ *Payment Confirmed!*\n\n"
@@ -122,7 +122,7 @@ async def paystack_webhook(
     
     # Notify merchant
     if merchant:
-        run_sync(send_twilio_whatsapp_message(
+        run_sync(send_whatsapp_message(
             to_number=merchant.owner_personal_number,
             body_text=(
                 f"🔔 *NEW PAID ORDER*\n\n"

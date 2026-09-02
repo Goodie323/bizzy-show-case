@@ -6,7 +6,7 @@ import logging
 
 from app.db.session import SessionLocal
 from app.db.models import Order
-from app.core.twillo_client import send_twilio_whatsapp_message
+from app.core.meta_client import send_whatsapp_message
 from app.api.v1.webhooks import run_sync
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def check_expiring_payments():
         
         for order in expiring_orders:
             expiry = order.paystack_expires_at.strftime("%I:%M %p")
-            run_sync(send_twilio_whatsapp_message(
+            run_sync(send_whatsapp_message(
                 to_number=order.customer_number,
                 body_text=(
                     f"⏰ *5 MINUTES LEFT!*\n\n"
