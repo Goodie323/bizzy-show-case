@@ -18,7 +18,7 @@ from app.db.session import SessionLocal
 from app.db.models import Merchant, Product, Order, BargainLog, ChatMessage
 from app.core.filter import analyze_intent_and_route
 from app.core.gemini import process_customer_message
-from app.core.twillo_client import send_twilio_whatsapp_message
+from app.core.meta_client import send_whatsapp_message
 from app.core.paystack import (
     initialize_transaction,
     calculate_settlement,
